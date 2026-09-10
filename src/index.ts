@@ -1,57 +1,22 @@
-import {DirectedGraph} from './graph/directed-graph.js';
-import {GraphNode} from './graph/graph-node.js';
-import {getAncestors} from './algorithms/ancestors.js';
+import {GraphEdge} from './graph/graph-edge.js';
 
 /**
- * Creates the following directed graph:
- *
- *     A ───► B ───► C
- *     │
- *     └────► D
- *
- * E is disconnected.
+ * Creates two independent relationships and verifies that each edge
+ * receives its own identity.
  */
-const graph = new DirectedGraph();
+const firstEdge = new GraphEdge('A', 'B');
+const secondEdge = new GraphEdge('B', 'C');
 
-// Create the graph nodes.
-const a = new GraphNode('A');
-const b = new GraphNode('B');
-const c = new GraphNode('C');
-const d = new GraphNode('D');
-const e = new GraphNode('E');
+console.log('First edge:', {
+  id: firstEdge.id,
+  from: firstEdge.from,
+  to: firstEdge.to,
+});
 
-// Add the nodes to the graph.
-graph.addNode(a);
-graph.addNode(b);
-graph.addNode(c);
-graph.addNode(d);
-graph.addNode(e);
+console.log('Second edge:', {
+  id: secondEdge.id,
+  from: secondEdge.from,
+  to: secondEdge.to,
+});
 
-// Add the directed edges.
-graph.addEdge('A', 'B');
-graph.addEdge('B', 'C');
-graph.addEdge('A', 'D');
-
-// Find nodes that can eventually reach C.
-const ancestorsOfC = getAncestors(graph, 'C');
-
-console.log(
-  'Ancestors of C:',
-  ancestorsOfC.map((node) => node.id),
-);
-
-// Find nodes that can eventually reach D.
-const ancestorsOfD = getAncestors(graph, 'D');
-
-console.log(
-  'Ancestors of D:',
-  ancestorsOfD.map((node) => node.id),
-);
-
-// E has no incoming path from another node.
-const ancestorsOfE = getAncestors(graph, 'E');
-
-console.log(
-  'Ancestors of E:',
-  ancestorsOfE.map((node) => node.id),
-);
+console.log('IDs are different:', firstEdge.id !== secondEdge.id);

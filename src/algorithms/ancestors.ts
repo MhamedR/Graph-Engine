@@ -1,5 +1,6 @@
 import {DirectedGraph} from '../graph/directed-graph.js';
 import {GraphNode} from '../graph/graph-node.js';
+import {Queue} from '../data-structures/queue.js';
 
 /**
  * Returns every node that can reach the given node.
@@ -19,8 +20,8 @@ import {GraphNode} from '../graph/graph-node.js';
  *
  * The target node itself is intentionally excluded.
  *
- * Unlike normal BFS, this traversal follows incoming edges instead of
- * outgoing edges. This allows us to walk backward through the graph.
+ * This traversal follows incoming edges instead of outgoing edges,
+ * allowing us to walk backward through the graph.
  *
  * @param graph - The directed graph to search.
  * @param targetId - ID of the node whose ancestors should be found.
@@ -35,35 +36,38 @@ export function getAncestors(graph: DirectedGraph, targetId: string): GraphNode[
     throw new Error(`Node "${targetId}" does not exist.`);
   }
 
-  // Use a queue because we are performing a breadth-first traversal.
-  const queue: GraphNode[] = [targetNode];
+  // Use our reusable FIFO queue instead of Array.shift().
+  const queue = new Queue<GraphNode>();
 
   // Track visited nodes so cycles cannot cause infinite traversal.
   const visited = new Set<string>([targetId]);
 
-  // Store ancestors in the order in which we discover them.
+  // Store ancestors in the order in which they are discovered.
   const result: GraphNode[] = [];
 
-  // Process nodes until there are no more ancestors to explore.
-  while (queue.length > 0) {
-    // Remove the next node from the front of the queue.
-    const current = queue.shift()!;
+  // The traversal starts at the target and moves backward.
+  queue.enqueue(targetNode);
 
-    // Follow incoming edges instead of outgoing edges.
+  // Continue until there are no more nodes to explore.
+  while (!queue.isEmpty()) {
+    // dequeue() is safe because the loop guarantees an available item.
+    const current = queue.dequeue()!;
+
+    // Follow incoming edges to discover upstream nodes.
     for (const ancestor of graph.getIncoming(current.id)) {
       // Ignore nodes that have already been discovered.
       if (visited.has(ancestor.id)) {
         continue;
       }
 
-      // Mark the ancestor before adding it to the queue.
+      // Mark the node before adding it to the queue.
       visited.add(ancestor.id);
 
       // Record the discovered ancestor.
       result.push(ancestor);
 
       // Continue walking backward from this ancestor.
-      queue.push(ancestor);
+      queue.enqueue(ancestor);
     }
   }
 
