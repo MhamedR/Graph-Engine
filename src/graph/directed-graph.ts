@@ -13,7 +13,28 @@ export class DirectedGraph {
   private readonly outgoing = new Map<string, Set<GraphEdge>>();
   /** Maps each node ID to the IDs of nodes with edges pointing to it. */
   private readonly incoming = new Map<string, Set<GraphEdge>>();
-
+  /**
+   * Tracks the number of structural changes made to the graph.
+   *
+   * The version starts at `0` and advances whenever the graph structure
+   * changes, such as when a node or edge is added or removed.
+   *
+   * This gives consumers a cheap way to determine whether the graph has
+   * changed since they last observed it.
+   */
+  private _version = 0;
+  /**
+   * Returns the current structural version of the graph.
+   *
+   * The version changes when the graph's structure changes. Reading the
+   * version does not modify the graph.
+   *
+   * @returns The current graph version.
+   */
+  get version(): number {
+    // Return the current structural version without changing it.
+    return this._version;
+  }
   /**
    * Adds a node to the graph.
    *
@@ -31,6 +52,8 @@ export class DirectedGraph {
     this.nodes.set(node.id, node);
     this.outgoing.set(node.id, new Set());
     this.incoming.set(node.id, new Set());
+    // The graph structure has changed, so advance its version.
+    this.incrementVersion();
   }
   /**
    * Removes a node and all edges connected to it.
@@ -120,6 +143,8 @@ export class DirectedGraph {
     // Store the same edge in both directions.
     this.outgoing.get(from)!.add(edge);
     this.incoming.get(to)!.add(edge);
+    // The graph structure has changed, so advance its version.
+    this.incrementVersion();
   }
   /**
    * Removes a directed edge from one node to another.
@@ -147,6 +172,8 @@ export class DirectedGraph {
     // Remove the same edge object from both indexes.
     this.outgoing.get(from)!.delete(edge);
     this.incoming.get(to)!.delete(edge);
+    // The graph structure has changed, so advance its version.
+    this.incrementVersion();
   }
   /**
    * Returns all nodes that can be reached directly from the given node.
@@ -406,7 +433,6 @@ export class DirectedGraph {
       }
     }
   }
-
   /**
    * Ensures that a node with the given ID exists.
    *
@@ -417,5 +443,15 @@ export class DirectedGraph {
     if (!this.nodes.has(id)) {
       throw new Error(`Node "${id}" does not exist.`);
     }
+  }
+  /**
+   * Advances the graph's structural version.
+   *
+   * Keeping version updates in one helper makes it harder to accidentally
+   * modify the version inconsistently when new graph operations are added.
+   */
+  private incrementVersion(): void {
+    // Advance the graph to its next structural version.
+    this._version++;
   }
 }

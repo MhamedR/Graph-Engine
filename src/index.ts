@@ -1,22 +1,20 @@
-import {GraphEdge} from './graph/graph-edge.js';
+import {DirectedGraph} from './graph/directed-graph.js';
+import {GraphNode} from './graph/graph-node.js';
 
-/**
- * Creates two independent relationships and verifies that each edge
- * receives its own identity.
- */
-const firstEdge = new GraphEdge('A', 'B');
-const secondEdge = new GraphEdge('B', 'C');
+const graph = new DirectedGraph();
 
-console.log('First edge:', {
-  id: firstEdge.id,
-  from: firstEdge.from,
-  to: firstEdge.to,
-});
+graph.addNode(new GraphNode('A'));
 
-console.log('Second edge:', {
-  id: secondEdge.id,
-  from: secondEdge.from,
-  to: secondEdge.to,
-});
+console.log('After adding A:', graph.version);
 
-console.log('IDs are different:', firstEdge.id !== secondEdge.id);
+graph.addNode(new GraphNode('B'));
+
+console.log('After adding B:', graph.version);
+
+graph.addEdge('A', 'B');
+
+console.log('After adding A -> B:', graph.version);
+
+graph.removeEdge('A', 'B');
+
+console.log('After removing A -> B:', graph.version);
