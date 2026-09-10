@@ -1,5 +1,6 @@
 import {DirectedGraph} from '../graph/directed-graph.js';
 import {GraphNode} from '../graph/graph-node.js';
+import {Queue} from '../data-structures/queue.js';
 
 /**
  * Produces a topological ordering of a directed acyclic graph.
@@ -10,7 +11,8 @@ import {GraphNode} from '../graph/graph-node.js';
  * For example:
  *
  *     A ───► B ───► D
- *     │
+ *     │      │
+ *     │      ▼
  *     └────► C ───► D
  *
  * A valid ordering is:
@@ -25,67 +27,66 @@ import {GraphNode} from '../graph/graph-node.js';
  * The algorithm works by:
  *
  * 1. Finding nodes with no incoming edges.
- * 2. Removing those nodes from the remaining dependency graph.
- * 3. Repeating the process until all nodes have been processed.
+ * 2. Putting those nodes into a FIFO queue.
+ * 3. Removing one node from the queue.
+ * 4. Reducing the incoming-edge count of its neighbors.
+ * 5. Adding neighbors whose incoming-edge count reaches zero.
+ * 6. Repeating until all nodes have been processed.
  *
  * @param graph - The directed graph to sort.
  * @returns The nodes in topological order.
  * @throws {Error} If the graph contains a cycle.
  */
 export function topologicalSort(graph: DirectedGraph): GraphNode[] {
-  // Store the number of incoming edges for every node.
-  //
-  // We copy these values instead of modifying the graph itself because
-  // an algorithm should not change the caller's graph.
+  // Store the number of remaining incoming edges for every node.
   const inDegree = new Map<string, number>();
 
-  // Initialize the in-degree of every node.
+  // Initialize each node with its current incoming-edge count.
   for (const node of graph.getNodes()) {
     inDegree.set(node.id, graph.getInDegree(node.id));
   }
 
-  // Nodes with zero incoming edges have no dependencies and can therefore
-  // be processed immediately.
-  const queue: GraphNode[] = [];
+  // Kahn's algorithm needs a FIFO queue of nodes whose dependencies
+  // have already been satisfied.
+  const queue = new Queue<GraphNode>();
 
+  // Nodes with zero incoming edges have no dependencies and can be
+  // processed immediately.
   for (const node of graph.getNodes()) {
     if (inDegree.get(node.id) === 0) {
-      queue.push(node);
+      queue.enqueue(node);
     }
   }
 
-  // Store the final topological ordering.
+  // Store nodes in the order in which they are processed.
   const result: GraphNode[] = [];
 
-  // Process nodes whose dependencies have already been satisfied.
-  while (queue.length > 0) {
-    // Remove the next dependency-free node.
-    const current = queue.shift()!;
+  // Continue until there are no dependency-free nodes remaining.
+  while (!queue.isEmpty()) {
+    const current = queue.dequeue()!;
 
-    // Add it to the final ordering.
+    // The current node belongs in the topological ordering.
     result.push(current);
 
-    // Removing `current` conceptually removes all of its outgoing edges.
+    // Pretend that the current node has been removed from the graph.
+    // Every outgoing neighbor therefore loses one dependency.
     for (const neighbor of graph.getOutgoing(current.id)) {
-      // Reduce the neighbor's remaining dependency count.
       const remainingDependencies = inDegree.get(neighbor.id)! - 1;
 
-      // Store the updated dependency count.
       inDegree.set(neighbor.id, remainingDependencies);
 
-      // Once a node has no remaining dependencies, it can be processed.
+      // Once all dependencies have been processed, this node can
+      // safely enter the queue.
       if (remainingDependencies === 0) {
-        queue.push(neighbor);
+        queue.enqueue(neighbor);
       }
     }
   }
 
-  // If we could not process every node, some nodes must still depend on
-  // each other. That can only happen when the graph contains a cycle.
+  // If some nodes were never processed, they must belong to a cycle.
   if (result.length !== graph.getNodes().length) {
     throw new Error('Cannot perform topological sort: graph contains a cycle.');
   }
 
-  // Return the dependency-respecting ordering.
   return result;
 }

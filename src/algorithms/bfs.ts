@@ -1,5 +1,6 @@
 import {DirectedGraph} from '../graph/directed-graph.js';
 import {GraphNode} from '../graph/graph-node.js';
+import {Queue} from '../data-structures/queue.js';
 
 /**
  * Performs a breadth-first traversal of a directed graph.
@@ -18,9 +19,10 @@ import {GraphNode} from '../graph/graph-node.js';
  *
  *     A → B → C → D → E
  *
- * A Set is used to keep track of visited nodes. This is important because
- * directed graphs may contain cycles, and we must not visit the same node
- * repeatedly.
+ * A Set keeps track of visited nodes so cycles cannot cause an infinite
+ * traversal.
+ *
+ * A Queue provides FIFO behavior without the O(n) cost of Array.shift().
  *
  * @param graph - The directed graph to traverse.
  * @param startId - ID of the node where traversal should begin.
@@ -28,51 +30,44 @@ import {GraphNode} from '../graph/graph-node.js';
  * @throws {Error} If the starting node does not exist.
  */
 export function breadthFirstSearch(graph: DirectedGraph, startId: string): GraphNode[] {
-  // Make sure the starting node exists before beginning the traversal.
   const startNode = graph.getNode(startId);
 
   if (!startNode) {
     throw new Error(`Node "${startId}" does not exist.`);
   }
 
-  // The queue contains nodes that have been discovered but not
-  // completely processed yet.
-  const queue: GraphNode[] = [startNode];
+  // BFS needs a FIFO queue so nodes are processed level by level.
+  const queue = new Queue<GraphNode>();
 
-  // A node is marked as visited when it is discovered.
-  //
-  // This prevents cycles such as A → B → A from causing an
-  // infinite traversal.
-  const visited = new Set<string>([startId]);
+  // A Set prevents us from visiting the same node more than once.
+  const visited = new Set<string>();
 
-  // This array records the final traversal order.
+  // Store the traversal order separately from the queue.
   const result: GraphNode[] = [];
 
-  // Continue until there are no more nodes waiting in the queue.
-  while (queue.length > 0) {
-    // Remove the first node from the queue.
-    //
-    // shift() gives us FIFO (First In, First Out) behavior.
-    const current = queue.shift()!;
+  // The traversal begins with the starting node.
+  queue.enqueue(startNode);
+  visited.add(startId);
 
-    // Record the node in the order in which BFS processes it.
+  // Continue until there are no nodes waiting to be processed.
+  while (!queue.isEmpty()) {
+    // dequeue() is safe here because the loop guarantees the queue
+    // contains at least one item.
+    const current = queue.dequeue()!;
+
+    // Record the node in the order in which BFS visits it.
     result.push(current);
 
-    // Examine every node directly reachable from the current node.
+    // Add each unvisited neighbor to the back of the queue.
     for (const neighbor of graph.getOutgoing(current.id)) {
-      // Ignore nodes that we have already discovered.
       if (visited.has(neighbor.id)) {
         continue;
       }
 
-      // Mark the node as discovered immediately.
       visited.add(neighbor.id);
-
-      // Put the newly discovered node at the end of the queue.
-      queue.push(neighbor);
+      queue.enqueue(neighbor);
     }
   }
 
-  // Return the traversal order to the caller.
   return result;
 }

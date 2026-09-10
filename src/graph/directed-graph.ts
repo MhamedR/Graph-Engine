@@ -99,14 +99,20 @@ export class DirectedGraph {
   getNode(id: string): GraphNode | undefined {
     return this.nodes.get(id);
   }
-  // ---------------------------------------------------------------------------
-  // Edge management
-  // ---------------------------------------------------------------------------
   /**
    * Adds a directed edge from one node to another.
    *
    * The edge is recorded in both the outgoing index of `from` and the
-   * incoming index of `to`. Adding an existing edge has no effect.
+   * incoming index of `to`.
+   *
+   * Adding an edge that already exists has no effect. The graph therefore
+   * treats edges as unique relationships between two nodes.
+   *
+   * For example, adding:
+   *
+   *     A ───► B
+   *
+   * twice still produces only one edge.
    *
    * @param from - ID of the source node.
    * @param to - ID of the destination node.
@@ -115,7 +121,11 @@ export class DirectedGraph {
   addEdge(from: string, to: string): void {
     this.assertNodeExists(from);
     this.assertNodeExists(to);
+
+    // Set.add() automatically ignores the value when the edge already exists.
     this.outgoing.get(from)!.add(to);
+
+    // Keep the reverse adjacency index synchronized.
     this.incoming.get(to)!.add(from);
   }
   /**
@@ -341,6 +351,79 @@ export class DirectedGraph {
       edgeCount: this.getEdgeCount(),
     };
   }
+  /**
+   * Validates the internal consistency of the graph's adjacency indexes.
+   *
+   * Every directed edge is stored in two places:
+   *
+   *     A ───► B
+   *
+   * `outgoing[A]` must contain `B`, and `incoming[B]` must contain `A`.
+   *
+   * This method checks both directions of that relationship and also verifies
+   * that every adjacency entry refers to a node that actually exists.
+   *
+   * The method is intended primarily for development, debugging, and tests.
+   *
+   * @throws {Error} If an inconsistency is found in the graph.
+   */
+  validate(): void {
+    // Check every outgoing relationship.
+    for (const [fromId, neighbors] of this.outgoing) {
+      // The source node itself must exist.
+      if (!this.nodes.has(fromId)) {
+        throw new Error(
+          `Graph invariant violated: outgoing index contains unknown node "${fromId}".`,
+        );
+      }
+
+      for (const toId of neighbors) {
+        // The destination node must exist.
+        if (!this.nodes.has(toId)) {
+          throw new Error(
+            `Graph invariant violated: edge "${fromId}" → "${toId}" points to an unknown node.`,
+          );
+        }
+
+        // The reverse incoming relationship must also exist.
+        if (!this.incoming.get(toId)!.has(fromId)) {
+          throw new Error(
+            `Graph invariant violated: outgoing edge "${fromId}" → "${toId}" ` +
+              `has no matching incoming relationship.`,
+          );
+        }
+      }
+    }
+
+    // Check every incoming relationship.
+    for (const [toId, sources] of this.incoming) {
+      // The destination node itself must exist.
+      if (!this.nodes.has(toId)) {
+        throw new Error(
+          `Graph invariant violated: incoming index contains unknown node "${toId}".`,
+        );
+      }
+
+      for (const fromId of sources) {
+        // The source node must exist.
+        if (!this.nodes.has(fromId)) {
+          throw new Error(
+            `Graph invariant violated: incoming edge "${fromId}" → "${toId}" ` +
+              `comes from an unknown node.`,
+          );
+        }
+
+        // The reverse outgoing relationship must also exist.
+        if (!this.outgoing.get(fromId)!.has(toId)) {
+          throw new Error(
+            `Graph invariant violated: incoming edge "${fromId}" → "${toId}" ` +
+              `has no matching outgoing relationship.`,
+          );
+        }
+      }
+    }
+  }
+
   /**
    * Ensures that a node with the given ID exists.
    *

@@ -1,5 +1,6 @@
 import {DirectedGraph} from './graph/directed-graph.js';
 import {GraphNode} from './graph/graph-node.js';
+import {getAncestors} from './algorithms/ancestors.js';
 
 /**
  * Creates the following directed graph:
@@ -8,10 +9,7 @@ import {GraphNode} from './graph/graph-node.js';
  *     │
  *     └────► D
  *
- * There are:
- *
- *     4 nodes
- *     3 directed edges
+ * E is disconnected.
  */
 const graph = new DirectedGraph();
 
@@ -20,32 +18,40 @@ const a = new GraphNode('A');
 const b = new GraphNode('B');
 const c = new GraphNode('C');
 const d = new GraphNode('D');
+const e = new GraphNode('E');
 
 // Add the nodes to the graph.
 graph.addNode(a);
 graph.addNode(b);
 graph.addNode(c);
 graph.addNode(d);
+graph.addNode(e);
 
 // Add the directed edges.
 graph.addEdge('A', 'B');
 graph.addEdge('B', 'C');
 graph.addEdge('A', 'D');
 
-// Ask the graph for its statistics.
-const stats = graph.getStats();
+// Find nodes that can eventually reach C.
+const ancestorsOfC = getAncestors(graph, 'C');
 
-// Print the statistics.
-console.log('Graph stats:', stats);
+console.log(
+  'Ancestors of C:',
+  ancestorsOfC.map((node) => node.id),
+);
 
-// Remove one edge.
-graph.removeEdge('A', 'D');
+// Find nodes that can eventually reach D.
+const ancestorsOfD = getAncestors(graph, 'D');
 
-// The edge count should now be one smaller.
-console.log('After removing A → D:', graph.getStats());
+console.log(
+  'Ancestors of D:',
+  ancestorsOfD.map((node) => node.id),
+);
 
-// Remove an entire node.
-graph.removeNode('B');
+// E has no incoming path from another node.
+const ancestorsOfE = getAncestors(graph, 'E');
 
-// Removing B also removes B → C.
-console.log('After removing B:', graph.getStats());
+console.log(
+  'Ancestors of E:',
+  ancestorsOfE.map((node) => node.id),
+);
