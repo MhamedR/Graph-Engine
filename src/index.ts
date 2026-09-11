@@ -1,20 +1,49 @@
-import {DirectedGraph} from './graph/directed-graph.js';
-import {GraphNode} from './graph/graph-node.js';
+import {ReactiveRuntime} from './reactive/reactive-runtime.js';
+import {ReactiveValue} from './reactive/reactive-value.js';
+import {ReactiveComputed} from './reactive/reactive-computed.js';
 
-const graph = new DirectedGraph();
+/**
+ * Creates the reactive runtime used by all nodes in this example.
+ */
+const runtime = new ReactiveRuntime();
 
-graph.addNode(new GraphNode('A'));
+/**
+ * Base reactive value.
+ */
+const count = new ReactiveValue(runtime, 'count', 1);
 
-console.log('After adding A:', graph.version);
+/**
+ * First computed value.
+ */
+const doubleCount = new ReactiveComputed(runtime, 'double-count', () => count.value * 2);
 
-graph.addNode(new GraphNode('B'));
+/**
+ * Second computed value that depends on another computed value.
+ */
+const quadrupleCount = new ReactiveComputed(
+  runtime,
+  'quadruple-count',
+  () => doubleCount.value * 2,
+);
 
-console.log('After adding B:', graph.version);
+/**
+ * Evaluate the outer computed value.
+ *
+ * This causes the complete dependency chain to be established:
+ *
+ *     count ──► double-count ──► quadruple-count
+ */
+console.log('Quadruple:', quadrupleCount.value);
 
-graph.addEdge('A', 'B');
+/**
+ * Inspect the dependency topology after evaluation.
+ *
+ * The first evaluation has now established the dependency relationships.
+ */
+console.log('doubleCount producers:', doubleCount.node.producerCount);
 
-console.log('After adding A -> B:', graph.version);
+console.log('doubleCount consumers:', doubleCount.node.consumerCount);
 
-graph.removeEdge('A', 'B');
+console.log('quadrupleCount producers:', quadrupleCount.node.producerCount);
 
-console.log('After removing A -> B:', graph.version);
+console.log('quadrupleCount consumers:', quadrupleCount.node.consumerCount);
