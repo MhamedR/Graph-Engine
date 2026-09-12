@@ -7,7 +7,9 @@
       "dev": "tsx src/index.ts",
       "build": "tsc",
       "start": "node dist/index.js",
-      "test": "echo \"Error: no test specified\" && exit 1",
+      "test:reactive": "tsx src/reactive/reactive-computed.test.ts",
+      "test:dynamic": "tsx src/reactive/reactive-dynamic.test.ts",
+      "test": "npm run test:reactive && npm run test:dynamic",
       "format": "prettier --write .",
       "format:check": "prettier --check .",
       "prepare": "husky"

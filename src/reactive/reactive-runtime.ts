@@ -1,6 +1,7 @@
 import {Epoch} from './epoch.js';
 import {ReactiveNode} from './reactive-node.js';
 import {ReactiveContext} from './reactive-context.js';
+import {ReactiveLink} from './reactive-link.js';
 /**
  * Coordinates global state for the reactive system.
  *
@@ -23,33 +24,36 @@ export class ReactiveRuntime {
    * Marks a reactive node as changed.
    *
    * A change advances the global epoch exactly once, then updates the node's
-   * local version and propagates dirty state.
+   * local version and propagates invalidation.
    *
    * @param node - The reactive node whose value changed.
-   * @returns The new global epoch.
+   * @returns The new global epoch and the consumers that became invalid.
    */
-  markChanged(node: ReactiveNode): number {
-    // Advance the global epoch exactly once for this change.
+  markChanged(node: ReactiveNode): {
+    epoch: number;
+    invalidatedConsumers: string[];
+  } {
+    // Advance the global epoch before propagating the change.
     const epoch = this.epoch.increment();
 
-    // Update the node after the epoch has advanced.
-    node.markChangedFromRuntime();
+    // Record the value change and collect newly invalid consumers.
+    const invalidatedConsumers = node.markValueChanged();
 
-    // Return the epoch assigned to this change.
-    return epoch;
+    return {
+      epoch,
+      invalidatedConsumers,
+    };
   }
   /**
    * Checks whether a reactive node has a producer that changed since the
    * node was last checked.
    *
-   * The runtime supplies the current global epoch so callers do not need to
-   * manage epoch values themselves.
-   *
    * @param node - The reactive node whose dependencies should be checked.
-   * @returns `true` when at least one producer has changed.
+   * @returns The first changed dependency link, or `undefined` when all
+   * producers are current.
    */
-  pollProducersForChange(node: ReactiveNode): boolean {
-    // Use the runtime's current epoch for the dependency check.
+  pollProducersForChange(node: ReactiveNode): ReactiveLink | undefined {
+    // Return the detailed dependency result from the node.
     return node.pollProducersForChange(this.epoch.value);
   }
 }

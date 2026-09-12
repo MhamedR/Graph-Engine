@@ -13,9 +13,21 @@ const runtime = new ReactiveRuntime();
 const count = new ReactiveValue(runtime, 'count', 1);
 
 /**
+/**
  * First computed value.
+ *
+ * The counter lets us verify that the computation is evaluated lazily and
+ * only when its cached value is invalidated.
  */
-const doubleCount = new ReactiveComputed(runtime, 'double-count', () => count.value * 2);
+let doubleCountComputations = 0;
+
+const doubleCount = new ReactiveComputed(runtime, 'double-count', () => {
+  // Record every actual execution of the computation function.
+  doubleCountComputations++;
+
+  // Compute the derived value from the reactive source.
+  return count.value * 2;
+});
 
 /**
  * Second computed value that depends on another computed value.
@@ -27,23 +39,49 @@ const quadrupleCount = new ReactiveComputed(
 );
 
 /**
- * Evaluate the outer computed value.
- *
- * This causes the complete dependency chain to be established:
- *
- *     count ──► double-count ──► quadruple-count
+ * A computed value whose result can remain unchanged even when its
+ * dependency changes.
  */
-console.log('Quadruple:', quadrupleCount.value);
+const stable = new ReactiveComputed(runtime, 'stable', () => {
+  // Read the dependency so that `stable` becomes dependent on `count`.
+  count.value;
+
+  // Always return the same result.
+  return 10;
+});
 
 /**
- * Inspect the dependency topology after evaluation.
- *
- * The first evaluation has now established the dependency relationships.
+ * Establish the initial computed value and dependency relationship.
  */
-console.log('doubleCount producers:', doubleCount.node.producerCount);
+console.log('Stable initial:', stable.value);
 
-console.log('doubleCount consumers:', doubleCount.node.consumerCount);
+/**
+ * Record the version after the initial computation.
+ */
+const stableVersion = stable.node.version;
 
-console.log('quadrupleCount producers:', quadrupleCount.node.producerCount);
+/**
+ * Change the dependency.
+ *
+ * `stable` should become dirty, but its computation should remain lazy.
+ */
+count.value = 7;
 
-console.log('quadrupleCount consumers:', quadrupleCount.node.consumerCount);
+/**
+ * The version should still be unchanged because `stable` has not
+ * recomputed yet.
+ */
+console.log('Stable version before read:', stable.node.version);
+
+/**
+ * Reading the value forces recomputation.
+ */
+console.log('Stable after dependency change:', stable.value);
+
+/**
+ * The computed result is still `10`, so its version should remain the
+ * same as before the dependency changed.
+ */
+console.log('Stable version after read:', stable.node.version);
+
+console.log('Stable version unchanged:', stable.node.version === stableVersion);

@@ -34,17 +34,15 @@ export class ReactiveLink {
     this.version = producer.version;
   }
   /**
-   * Determines whether the producer has changed since the consumer last
+   * Determines whether the producer has changed since this link last
    * observed it.
    *
-   * The link stores the producer version that was observed when the
-   * relationship was created or last synchronized.
-   *
-   * @returns `true` when the producer's current version differs from the
-   * observed version stored on this link.
+   * @returns `true` when the producer's current version is newer than the
+   * version recorded on this dependency link.
    */
-  isStale(): boolean {
-    // A version mismatch means the consumer may have stale information.
+  hasChanged(): boolean {
+    // Compare the producer's current version with the version observed
+    // through this dependency link.
     return this.producer.version !== this.version;
   }
   /**

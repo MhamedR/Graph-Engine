@@ -45,6 +45,8 @@ export class ReactiveNode {
    * rebuilding its dependencies as an ordinary clean or dirty node.
    */
   private _computing = false;
+
+  private _lastChangedProducer: ReactiveLink | undefined;
   /**
    * Relationships representing the producers this node depends on.
    *
@@ -127,25 +129,27 @@ export class ReactiveNode {
   /**
    * Advances this node to a new value version.
    *
-   * This method is kept as a low-level version operation. Call
-   * {@link markChanged} when the operation represents an actual value change.
+   * This is a low-level state operation. Change propagation is deliberately
+   * handled by ReactiveRuntime rather than by the node itself.
    */
   incrementVersion(): void {
-    // Delegate to the semantic change operation.
-    this.markChanged();
+    // Advance only this node's local version.
+    this._version++;
   }
   /**
-   * Marks this node's current value as changed.
+   * Records that this node's value changed and propagates invalidation.
    *
-   * Advancing the node version makes dependency links stale. Consumers are
-   * also notified so they can defer their own validation until needed.
+   * This combines the local version update with downstream invalidation so
+   * callers do not need to coordinate those two operations themselves.
+   *
+   * @returns The IDs of consumers that became newly invalid.
    */
-  private markChanged(): void {
-    // Advance this node to a new value version.
-    this._version++;
+  markValueChanged(): string[] {
+    // Advance this node's local version.
+    this.incrementVersion();
 
-    // Notify direct consumers that they may now have stale information.
-    this.notifyConsumers();
+    // Invalidate downstream consumers and report newly invalid consumers.
+    return this.notifyConsumers();
   }
   /**
    * Returns the reactive nodes this node currently depends on.
@@ -249,68 +253,38 @@ export class ReactiveNode {
    * @returns `true` when at least one producer has changed.
    */
   hasStaleProducer(): boolean {
-    // Check every dependency relationship owned by this consumer.
+    // Ask each dependency link whether its producer has changed.
     for (const link of this.producers) {
-      if (link.isStale()) {
-        // One stale dependency is enough to make the consumer potentially stale.
-        return true;
-      }
+      if (link.hasChanged()) return true;
     }
 
     // Every producer is still at the version previously observed.
     return false;
   }
   /**
-   * Marks every current dependency as observed.
+   * Synchronizes all producer links with their current producer versions.
    *
-   * Calling this method records the current producer version on every
-   * dependency relationship owned by this consumer.
-   *
-   * After all dependencies have been observed, the consumer should no
-   * longer report a stale producer.
+   * Calling this method records that this node has observed every tracked
+   * producer at its current version.
    */
-  markClean(): void {
-    // Update every dependency relationship to the producer's current version.
+  synchronizeProducerVersions(): void {
+    // Record the current version of every tracked producer.
     for (const link of this.producers) {
       link.markCurrent();
     }
+
+    // The previously detected producer is no longer stale after synchronization.
+    this._lastChangedProducer = undefined;
   }
   /**
-   * Marks this node as dirty.
+   * Clears this node's invalidated state.
    *
-   * If the node is already dirty, no state change occurs.
-   *
-   * @returns `true` when the node changed from clean to dirty.
+   * This operation only changes the node's dirty flag. Producer version
+   * synchronization is handled separately.
    */
-  markDirty(): boolean {
-    // Avoid doing work when this node is already dirty.
-    if (this._dirty) {
-      return false;
-    }
-
-    // Record that this node now needs to be checked.
-    this._dirty = true;
-
-    // Report that the dirty state actually changed.
-    return true;
-  }
-  /**
-   * Marks this node as clean after checking its dependencies.
-   *
-   * Cleaning a consumer performs two related operations:
-   *
-   * 1. The node is no longer marked dirty.
-   * 2. Every dependency records the producer version that was observed.
-   *
-   * This keeps the node's dirty state and dependency observations
-   * synchronized.
-   */
-  markCleanState(): void {
-    // Record that this node no longer needs to be checked.
+  clearDirty(): void {
+    // The node is valid again after a successful computation.
     this._dirty = false;
-
-    // Record the current version of every producer this node depends on.
-    this.markClean();
   }
   /**
    * Propagates dirty state to all downstream consumers.
@@ -347,8 +321,8 @@ export class ReactiveNode {
       for (const link of current.consumers) {
         const consumer = link.consumer;
 
-        // Mark the consumer dirty.
-        const becameDirty = consumer.markDirty();
+        // Invalidate the downstream consumer when this node changes.
+        const becameDirty = consumer.invalidate();
 
         // Record consumers that transitioned from clean to dirty.
         if (becameDirty) {
@@ -364,30 +338,33 @@ export class ReactiveNode {
     return notified;
   }
   /**
-   * Checks whether any producer changed since this node last observed it.
+   * Checks whether a producer changed since this node was last checked.
    *
-   * @param epoch - The current global reactive epoch.
-   * @returns `true` when at least one producer is stale.
+   * @param epoch - Current global reactive epoch.
+   * @returns The first changed dependency link, or `undefined` when all
+   * producers are current.
    */
-  pollProducersForChange(epoch: number): boolean {
-    // If this node has already been checked during this epoch, avoid
-    // repeating the same dependency scan.
+  pollProducersForChange(epoch: number): ReactiveLink | undefined {
+    // Reuse the result already established during this epoch.
     if (this.hasBeenCheckedInEpoch(epoch)) {
-      return false;
+      return this._lastChangedProducer;
     }
 
     // Record that this node has now been checked for this epoch.
     this.markCheckedAtEpoch(epoch);
 
-    // A dirty node must re-check its producers even if its cached value
-    // has not yet been refreshed.
+    // Reset the cached changed dependency before checking producers.
+    this._lastChangedProducer = undefined;
+
+    // Return and remember the first dependency whose producer has changed.
     for (const link of this.producers) {
-      if (link.isStale()) {
-        return true;
+      if (link.hasChanged()) {
+        this._lastChangedProducer = link;
+        return link;
       }
     }
 
-    return false;
+    return undefined;
   }
   /**
    * Checks whether this node has already been checked during the given epoch.
@@ -408,28 +385,17 @@ export class ReactiveNode {
     this._lastCheckedEpoch = epoch;
   }
   /**
-   * Marks this node as changed after the runtime has advanced the epoch.
+   * Starts a new dependency-tracking cycle for this node.
    *
-   * This is intentionally a low-level operation. Application code should
-   * normally call ReactiveRuntime.markChanged() instead.
-   */
-  markChangedFromRuntime(): void {
-    // Advance this node's local version.
-    this._version++;
-
-    // Notify downstream consumers.
-    this.notifyConsumers();
-  }
-  /**
-   * Starts collecting dependencies for a new computation.
-   *
-   * Existing dependency relationships are preserved until the computation
-   * finishes. This allows us to compare the previous and newly observed
-   * dependencies.
+   * Previous temporary producer observations are discarded because the
+   * upcoming computation will establish the dependencies that should remain.
    */
   beginDependencyTracking(): void {
-    // Start with an empty set of dependencies observed during this run.
+    // Start collecting dependencies from scratch.
     this.activeProducers.clear();
+
+    // Discard any previously remembered changed dependency.
+    this._lastChangedProducer = undefined;
   }
   /**
    * Records that a producer was read during the current computation.
@@ -487,11 +453,26 @@ export class ReactiveNode {
 
     this._computing = true;
   }
-
   /**
    * Marks this node as no longer computing.
    */
   endComputation(): void {
     this._computing = false;
+  }
+  /**
+   * Invalidates this node's cached state.
+   *
+   * Invalidating a node does not change its value version. It only records
+   * that the node must refresh before its cached result can be trusted.
+   *
+   * @returns `true` when the node transitioned from clean to dirty.
+   */
+  invalidate(): boolean {
+    // Reuse the existing dirty-state transition so there is one source
+    // of truth for determining whether a node became newly invalid.
+    if (this._dirty) return false;
+
+    this._dirty = true;
+    return true;
   }
 }

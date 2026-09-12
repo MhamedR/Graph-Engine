@@ -1,5 +1,6 @@
 import {ReactiveNode} from './reactive-node.js';
 import {ReactiveRuntime} from './reactive-runtime.js';
+import {ReactiveLink} from './reactive-link.js';
 
 /**
  * Represents a lazily computed reactive value.
@@ -45,105 +46,144 @@ export class ReactiveComputed<T> {
    * Reactive node representing this computed value.
    */
   public readonly node: ReactiveNode;
-
   /**
-   * Returns the current computed value.
+   * Recomputes this computed value when it is invalidated.
    *
-   * The computation runs the first time the value is requested and again
-   * whenever the runtime detects that one of its producers changed.
+   * The method is intentionally safe to call when the value is already
+   * up-to-date; in that case no computation occurs.
    *
    * @returns The current computed value.
+   * @throws {Error} If the computation attempts to read itself recursively.
    */
-  get value(): T {
+  recompute(): T {
     // A computed value cannot safely evaluate itself recursively.
     if (this.node.computing) {
       throw new Error(`Reactive computed "${this.node.id}" cannot read itself while computing.`);
     }
 
-    // If another computation is currently evaluating, this computed node
-    // becomes one of that computation's dependencies.
+    // Return the cached value when it is still valid.
+    if (this.isValid()) {
+      return this._value as T;
+    }
+
+    // Remember which consumer was active before this computation started.
+    const previousConsumer = this.runtime.context.activeConsumer;
+
+    // Clear the dependency observations from the previous computation.
+    this.node.beginDependencyTracking();
+
+    // Mark this node as actively computing.
+    this.node.beginComputation();
+
+    // Make this node the active consumer while its computation executes.
+    this.runtime.context.setActiveConsumer(this.node);
+
+    let nextValue: T;
+
+    try {
+      // Execute the computation while dependency tracking is active.
+      nextValue = this.compute();
+    } finally {
+      // Always leave the computing state, even when the computation throws.
+      this.node.endComputation();
+
+      // Restore the previous reactive consumer.
+      if (previousConsumer !== undefined) {
+        this.runtime.context.setActiveConsumer(previousConsumer);
+      } else {
+        this.runtime.context.clearActiveConsumer();
+      }
+    }
+
+    // Reconcile the dependency graph with the producers actually observed.
+    this.node.synchronizeDependencies();
+
+    // Determine whether the computed result actually changed.
+    const valueChanged = !this._initialized || !Object.is(this._value, nextValue);
+
+    // Store the newly computed result.
+    this._value = nextValue;
+
+    // Only propagate when the computed result actually changed.
+    if (valueChanged) {
+      // Record the new value and invalidate downstream consumers.
+      this.node.markValueChanged();
+    }
+
+    // The node now has a valid cached value.
+    this._initialized = true;
+
+    // Clear the invalidation state after successful recomputation.
+    this.node.clearDirty();
+
+    // Record the producer versions observed by this computation.
+    this.node.synchronizeProducerVersions();
+
+    return this._value as T;
+  }
+  /**
+   * Returns the current computed value.
+   *
+   * @returns The current computed value.
+   */
+  get value(): T {
+    // If another computation is currently running, register this computed
+    // node as one of that computation's dependencies.
     const consumer = this.runtime.context.activeConsumer;
 
     if (consumer !== undefined) {
       consumer.trackProducer(this.node);
     }
 
-    /**
-     * Determines whether this computed value needs to be evaluated.
-     *
-     * A computed value must evaluate when:
-     * - it has never been initialized,
-     * - it was explicitly marked dirty by an upstream change, or
-     * - one of its producers has a newer version.
-     */
-    const needsInitialComputation = !this._initialized;
-
-    /**
-     * A dirty node was invalidated through the push phase of the reactive
-     * graph and therefore must refresh its cached value.
-     */
-    const isDirty = this.node.dirty;
-
-    /**
-     * If the node is not already known to be dirty, inspect its producer
-     * versions during the pull phase.
-     */
-    const hasChangedProducer =
-      this._initialized && !isDirty && this.runtime.pollProducersForChange(this.node);
-
-    if (needsInitialComputation || isDirty || hasChangedProducer) {
-      // Remember which consumer was active before this computation started.
-      const previousConsumer = this.runtime.context.activeConsumer;
-
-      // Mark the node as actively computing before executing its function.
-      this.node.beginComputation();
-
-      // Clear the previous run's temporary dependency observations.
-      this.node.beginDependencyTracking();
-
-      // Make this computed node the consumer of any reactive values read
-      // during the computation.
-      this.runtime.context.setActiveConsumer(this.node);
-
-      let nextValue: T;
-
-      try {
-        // Execute the computation while dependency tracking is active.
-        nextValue = this.compute();
-      } finally {
-        // The computation has finished, so leave the computing state.
-        this.node.endComputation();
-        // Restore the previous consumer even if the computation throws.
-        if (previousConsumer !== undefined) {
-          this.runtime.context.setActiveConsumer(previousConsumer);
-        } else {
-          this.runtime.context.clearActiveConsumer();
-        }
-      }
-
-      // Reconcile the dependency graph with the producers actually read.
-      this.node.synchronizeDependencies();
-
-      // A computed node should only advance its version when its value
-      // actually changes.
-      const valueChanged = !this._initialized || !Object.is(this._value, nextValue);
-
-      // Store the newly computed value.
-      this._value = nextValue;
-
-      // Mark the computed node as changed only when its value changed.
-      if (valueChanged) {
-        this.node.markChangedFromRuntime();
-      }
-
-      // Remember that the computation now has a valid cached result.
-      this._initialized = true;
-
-      // Record the current producer versions as observed.
-      this.node.markCleanState();
+    // Evaluate only when the cached value is invalid.
+    return this.recompute();
+  }
+  /**
+   * Determines whether the cached computed value is currently valid.
+   *
+   * The value is valid when:
+   * - it has been computed at least once,
+   * - it is not marked dirty, and
+   * - none of its tracked producers has changed since the last computation.
+   *
+   * @returns `true` when the cached value can be safely reused.
+   */
+  isValid(): boolean {
+    // A computed value that has never been evaluated has no valid cache.
+    if (!this._initialized) {
+      return false;
     }
 
-    // `_initialized` guarantees that `_value` has been assigned here.
-    return this._value as T;
+    // A dirty node was explicitly invalidated during the push phase.
+    if (this.node.dirty) {
+      return false;
+    }
+
+    // Ask the computed value whether one of its dependencies has changed.
+    const changedLink = this.getChangedProducer();
+
+    // The cache is valid only when no dependency has changed.
+    return changedLink === undefined;
+  }
+  /**
+   * Returns the dependency link whose producer changed since this computed
+   * value was last checked.
+   *
+   * @returns The first changed producer link, or `undefined` when all
+   * dependencies are current.
+   */
+  getChangedProducer(): ReactiveLink | undefined {
+    // An uninitialized computed has no established dependency state yet.
+    if (!this._initialized) {
+      return undefined;
+    }
+
+    // A dirty computed may have a changed dependency that should be inspected.
+    if (this.node.dirty) {
+      return this.runtime.pollProducersForChange(this.node);
+    }
+
+    // Inspect producer versions only when the computed is otherwise clean.
+    return this.runtime.pollProducersForChange(this.node);
   }
 }
