@@ -9,7 +9,10 @@
       "start": "node dist/index.js",
       "test:reactive": "tsx src/reactive/reactive-computed.test.ts",
       "test:dynamic": "tsx src/reactive/reactive-dynamic.test.ts",
-      "test": "npm run test:reactive && npm run test:dynamic",
+      "test:scheduler": "tsx src/reactive/scheduler.test.ts",
+      "test:runtime": "tsx src/reactive/reactive-runtime.test.ts",
+      "test:effect": "tsx src/reactive/reactive-effect.test.ts",
+      "test": "npm run test:reactive && npm run test:dynamic && npm run test:scheduler && npm run test:runtime && npm run test:effect",
       "format": "prettier --write .",
       "format:check": "prettier --check .",
       "prepare": "husky"

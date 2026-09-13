@@ -30,6 +30,12 @@ export class ReactiveValue<T> {
     initialValue: T,
   ) {
     this.node = new ReactiveNode(id);
+
+    // Register the value's reactive node with the runtime so it becomes
+    // available to runtime-level inspection and diagnostics.
+    this.runtime.registerNode(this.node);
+
+    // Store the initial application value separately from the reactive node.
     this._value = initialValue;
   }
   /**

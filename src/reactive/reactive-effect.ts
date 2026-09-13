@@ -1,0 +1,331 @@
+import {ReactiveRuntime} from './reactive-runtime.js';
+import {ReactiveNode} from './reactive-node.js';
+
+/**
+ * Describes the observable lifecycle state of a ReactiveEffect.
+ */
+export interface EffectState {
+  /** Whether the effect has executed successfully at least once. */
+  initialized: boolean;
+
+  /** Whether the effect has been permanently destroyed. */
+  destroyed: boolean;
+
+  /** Whether the effect is still active. */
+  active: boolean;
+
+  /** Whether the effect currently requires execution. */
+  dirty: boolean;
+
+  /** Whether the effect currently has scheduled work. */
+  scheduled: boolean;
+
+  /** Number of reactive dependencies currently tracked by the effect. */
+  dependencyCount: number;
+}
+/**
+ * Represents a reactive side-effect.
+ *
+ * A ReactiveEffect executes a function while dependency tracking is active.
+ * Any reactive values read during the execution become producers of the
+ * effect node.
+ *
+ * Unlike ReactiveComputed, an effect does not cache a return value. Its
+ * purpose is to perform work in response to reactive dependencies.
+ */
+export class ReactiveEffect {
+  /**
+   * Reactive node representing this effect.
+   */
+  public readonly node: ReactiveNode;
+
+  private _initialized = false;
+  /**
+   * Tracks whether this effect already has a scheduled execution waiting.
+   *
+   * This prevents repeated scheduling from creating duplicate work for the
+   * same effect.
+   */
+  private _scheduled = false;
+  /**
+   * Tracks whether this effect has been permanently destroyed.
+   *
+   * A destroyed effect must no longer execute or schedule new work.
+   */
+  private _destroyed = false;
+
+  constructor(
+    private readonly runtime: ReactiveRuntime,
+    id: string,
+    private readonly effect: () => void,
+  ) {
+    this.node = new ReactiveNode(id);
+    // Register the effect's reactive node with the runtime so the effect
+    // participates in runtime-level inspection and diagnostics.
+    this.runtime.registerNode(this.node);
+
+    // Connect dependency invalidation to deferred effect scheduling.
+    this.node.setOnInvalidate(() => {
+      this.schedule();
+    });
+  }
+  /**
+   * Returns whether this effect has been executed at least once.
+   *
+   * @returns `true` after the first successful execution.
+   */
+  get initialized(): boolean {
+    // Expose whether the effect has established its dependency graph.
+    return this._initialized;
+  }
+  /**
+   * Returns whether this effect currently requires execution because one of
+   * its dependencies has invalidated it.
+   *
+   * Destroyed effects are never considered dirty because they no longer
+   * participate in the reactive graph.
+   *
+   * @returns `true` when the active effect is dirty.
+   */
+  get isDirty(): boolean {
+    // A destroyed effect no longer participates in reactive invalidation.
+    if (this._destroyed) {
+      return false;
+    }
+
+    return this.node.dirty;
+  }
+  /**
+   * Returns whether this effect currently has scheduled work pending.
+   *
+   * @returns `true` when the effect is waiting in the runtime scheduler.
+   */
+  get isScheduled(): boolean {
+    // Expose the internal scheduling state for inspection and testing.
+    return this._scheduled;
+  }
+  /**
+   * Returns whether this effect has been destroyed.
+   *
+   * @returns `true` when the effect can no longer participate in reactive
+   * scheduling.
+   */
+  get destroyed(): boolean {
+    // Expose the effect lifecycle state without allowing callers to mutate it.
+    return this._destroyed;
+  }
+  /**
+   * Returns the number of reactive dependencies currently tracked by this
+   * effect.
+   *
+   * @returns Number of producer nodes tracked by the effect.
+   */
+  get dependencyCount(): number {
+    // Delegate to the underlying reactive node's producer collection.
+    return this.node.producerCount;
+  }
+  /**
+   * Returns the IDs of the reactive nodes currently tracked by this effect.
+   *
+   * A new array is returned so callers cannot mutate the effect's internal
+   * dependency collection.
+   *
+   * @returns IDs of the current producer nodes.
+   */
+  get dependencyIds(): string[] {
+    // Delegate to the underlying node and return a defensive array.
+    return this.node.getProducerIds();
+  }
+  /**
+   * Returns whether this effect is still active.
+   *
+   * @returns `true` when the effect has not been destroyed.
+   */
+  get isActive(): boolean {
+    // An effect is active exactly when it has not been destroyed.
+    return !this._destroyed;
+  }
+  /**
+   * Returns a snapshot of the effect's current lifecycle state.
+   *
+   * @returns Current effect lifecycle information.
+   */
+  get state(): EffectState {
+    // Build a fresh snapshot so callers cannot mutate internal effect state.
+    return {
+      initialized: this._initialized,
+      destroyed: this._destroyed,
+      active: this.isActive,
+      dirty: this.isDirty,
+      scheduled: this.isScheduled,
+      dependencyCount: this.dependencyCount,
+    };
+  }
+  /**
+   * Runs the effect immediately.
+   *
+   * The first execution establishes the effect's dependencies. Subsequent
+   * executions rebuild those dependencies so dynamic dependency tracking
+   * remains correct.
+   *
+   * @throws {Error} If the effect attempts to execute itself recursively.
+   */
+  run(): void {
+    // A destroyed effect is no longer allowed to execute.
+    if (this._destroyed) {
+      return;
+    }
+    // Prevent recursive execution of the same effect.
+    if (this.node.computing) {
+      throw new Error(`Reactive effect "${this.node.id}" cannot run itself recursively.`);
+    }
+
+    // The explicit run supersedes any previously scheduled execution.
+    // The queued scheduler task may still exist, but it will become a no-op
+    // because the effect is clean after this run.
+    this._scheduled = false;
+
+    // Remember the consumer that was active before this effect started.
+    const previousConsumer = this.runtime.context.activeConsumer;
+
+    // Start collecting dependencies for this execution.
+    this.node.beginDependencyTracking();
+
+    // Mark this effect as actively executing.
+    this.node.beginComputation();
+
+    // Make this effect the active consumer while its function executes.
+    this.runtime.context.setActiveConsumer(this.node);
+
+    try {
+      // Execute the side effect while dependency tracking is active.
+      this.effect();
+    } finally {
+      // Always leave the computing state after execution.
+      this.node.endComputation();
+
+      // Restore the previous reactive consumer.
+      if (previousConsumer !== undefined) {
+        this.runtime.context.setActiveConsumer(previousConsumer);
+      } else {
+        this.runtime.context.clearActiveConsumer();
+      }
+    }
+
+    // Reconcile dependencies with the producers observed during execution.
+    this.node.synchronizeDependencies();
+
+    // The effect has now established its current dependency state.
+    this._initialized = true;
+
+    // An explicit run leaves the effect clean.
+    this.node.clearDirty();
+
+    // Record the producer versions observed by this execution.
+    this.node.synchronizeProducerVersions();
+  }
+  /**
+   * Determines whether the effect currently needs execution.
+   *
+   * An effect needs to run when it has never established its dependency graph
+   * or when one of its tracked dependencies has invalidated it. A destroyed
+   * effect never needs execution.
+   *
+   * @returns `true` when the active effect requires execution.
+   */
+  shouldRun(): boolean {
+    // A destroyed effect can never require another execution.
+    if (this._destroyed) {
+      return false;
+    }
+
+    if (!this._initialized) {
+      return true;
+    }
+
+    return this.node.dirty;
+  }
+  /**
+   * Schedules the effect for later execution.
+   *
+   * Repeated calls while the effect is already scheduled are coalesced into
+   * one pending scheduler task.
+   */
+  schedule(): void {
+    // Destroyed effects must never create new scheduler work.
+    if (this._destroyed) {
+      return;
+    }
+    // Avoid creating duplicate scheduler work for an already scheduled effect.
+    if (this._scheduled) {
+      return;
+    }
+
+    // Remember that this effect now has pending scheduled work.
+    this._scheduled = true;
+
+    // Delegate deferred execution to the runtime scheduler.
+    this.runtime.schedule(() => {
+      // Clear the scheduled state before executing so the effect can be
+      // scheduled again from inside its own execution if necessary.
+      this._scheduled = false;
+
+      // Destruction may have happened after this task was queued.
+      // In that case, the stale task must do nothing.
+      if (this._destroyed) {
+        return;
+      }
+
+      // Only execute when the effect actually requires execution.
+      if (this.shouldRun()) {
+        this.run();
+      }
+    });
+  }
+  /**
+   * Disposes this effect.
+   *
+   * This is an alias for {@link destroy} and exists so callers can use the
+   * common "dispose" terminology for lifecycle cleanup.
+   */
+  dispose(): void {
+    // Reuse the existing destruction implementation so lifecycle cleanup has
+    // exactly one source of truth.
+    this.destroy();
+  }
+  /**
+   * Removes every dependency currently tracked by this effect.
+   *
+   * The reactive node owns the graph-level cleanup operation, so the effect
+   * only needs to delegate the lifecycle cleanup to that primitive.
+   */
+  private cleanupDependencies(): void {
+    // Let the reactive node remove every producer relationship and keep both
+    // sides of the dependency graph synchronized.
+    this.node.clearProducers();
+  }
+  /**
+   * Permanently destroys this effect.
+   *
+   * Destruction is idempotent. Once destroyed, the effect can no longer
+   * execute, schedule new work, or remain connected to its producers.
+   */
+  destroy(): void {
+    // Destruction is idempotent so callers can safely clean up an effect more
+    // than once.
+    if (this._destroyed) {
+      return;
+    }
+
+    // Mark the effect as permanently destroyed.
+    this._destroyed = true;
+
+    // The effect is no longer considered scheduled from the public lifecycle
+    // perspective. Any already-queued scheduler task will become a no-op.
+    this._scheduled = false;
+
+    // Remove the effect from the runtime registry and completely isolate its
+    // reactive node from the dependency graph.
+    this.runtime.disposeNode(this.node);
+  }
+}

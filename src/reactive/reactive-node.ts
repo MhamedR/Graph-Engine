@@ -1,4 +1,39 @@
 import {ReactiveLink} from './reactive-link.js';
+
+/**
+ * Describes the observable diagnostic state of a reactive node.
+ */
+export interface ReactiveNodeState {
+  /** Unique identifier of the node. */
+  id: string;
+
+  /** Current local value version. */
+  version: number;
+
+  /** Whether the node is currently dirty. */
+  dirty: boolean;
+
+  /** Whether the node is currently being computed. */
+  computing: boolean;
+
+  /** Number of producer dependencies. */
+  producerCount: number;
+
+  /** Number of downstream consumers. */
+  consumerCount: number;
+
+  /** Whether all producer dependencies are currently fresh. */
+  fresh: boolean;
+
+  /** Whether the node's graph relationships are structurally valid. */
+  consistent: boolean;
+
+  /** Whether the node is both structurally valid and reactively fresh. */
+  healthy: boolean;
+
+  /** Whether the node has no producer or consumer relationships. */
+  isolated: boolean;
+}
 /**
  * Represents a node in a reactive dependency graph.
  *
@@ -47,6 +82,14 @@ export class ReactiveNode {
   private _computing = false;
 
   private _lastChangedProducer: ReactiveLink | undefined;
+  /**
+   * Callback invoked when this node becomes newly invalid.
+   *
+   * ReactiveEffect uses this hook to schedule itself after dependency
+   * invalidation without making ReactiveNode depend directly on the effect
+   * implementation.
+   */
+  private _onInvalidate: (() => void) | undefined;
   /**
    * Relationships representing the producers this node depends on.
    *
@@ -125,6 +168,41 @@ export class ReactiveNode {
    */
   get computing(): boolean {
     return this._computing;
+  }
+  /**
+   * Returns a snapshot of the node's current diagnostic state.
+   *
+   * A fresh object is returned so callers cannot mutate the node through the
+   * diagnostic snapshot.
+   *
+   * @returns Current reactive node state.
+   */
+  get state(): ReactiveNodeState {
+    // Capture each diagnostic property at the time the snapshot is created.
+    return {
+      id: this.id,
+      version: this.version,
+      dirty: this.dirty,
+      computing: this.computing,
+      producerCount: this.producerCount,
+      consumerCount: this.consumerCount,
+      fresh: this.hasFreshProducers(),
+      consistent: this.hasConsistentRelationships(),
+      healthy: this.isHealthy(),
+      isolated: this.isIsolated(),
+    };
+  }
+  /**
+   * Returns the reactive nodes currently producing this node.
+   *
+   * A new array is returned so callers cannot mutate the internal dependency
+   * collection directly.
+   *
+   * @returns The current producer nodes.
+   */
+  getProducers(): ReactiveNode[] {
+    // Extract the producer node from each dependency link.
+    return [...this.producers].map((link) => link.producer);
   }
   /**
    * Advances this node to a new value version.
@@ -468,11 +546,164 @@ export class ReactiveNode {
    * @returns `true` when the node transitioned from clean to dirty.
    */
   invalidate(): boolean {
-    // Reuse the existing dirty-state transition so there is one source
-    // of truth for determining whether a node became newly invalid.
-    if (this._dirty) return false;
+    // Do not repeatedly notify the same node while it is already dirty.
+    if (this._dirty) {
+      return false;
+    }
 
+    // Record the transition from clean to dirty.
     this._dirty = true;
+
+    // Notify the owner of the newly invalidated node.
+    this._onInvalidate?.();
+
     return true;
+  }
+  /**
+   * Registers a callback that runs when this node transitions from clean
+   * to dirty.
+   *
+   * @param callback - Function to invoke after invalidation.
+   */
+  setOnInvalidate(callback: (() => void) | undefined): void {
+    // Store the invalidation hook without coupling the node to a specific
+    // reactive consumer implementation.
+    this._onInvalidate = callback;
+  }
+  /**
+   * Removes all producer relationships from this node.
+   *
+   * This also removes the corresponding consumer relationships from every
+   * producer, keeping both sides of the dependency graph synchronized.
+   */
+  clearProducers(): void {
+    // Copy the links before removing them because the producer collection is
+    // modified during cleanup.
+    const links = [...this.producers];
+
+    // Remove each dependency through the existing bidirectional cleanup path.
+    for (const link of links) {
+      this.removeProducer(link.producer);
+    }
+  }
+  /**
+   * Removes all consumer relationships from this node.
+   *
+   * This also removes the corresponding producer relationships from every
+   * consumer, keeping both sides of the dependency graph synchronized.
+   */
+  clearConsumers(): void {
+    // Copy the links before removing them because the consumer collection is
+    // modified during cleanup.
+    const links = [...this.consumers];
+
+    // Remove each dependency from the consumer side.
+    for (const link of links) {
+      link.consumer.removeProducer(this);
+    }
+  }
+  /**
+   * Removes every dependency relationship connected to this node.
+   *
+   * This clears both producer and consumer relationships, leaving the node
+   * isolated from the reactive graph.
+   */
+  clearDependencies(): void {
+    // Remove all incoming dependency relationships.
+    this.clearProducers();
+
+    // Remove all outgoing dependency relationships.
+    this.clearConsumers();
+  }
+  /**
+   * Returns whether this node is completely disconnected from the reactive
+   * graph.
+   *
+   * A node is isolated when it has neither producers nor consumers.
+   *
+   * @returns `true` when the node has no graph relationships.
+   */
+  isIsolated(): boolean {
+    // A node is isolated only when both sides of its dependency graph are empty.
+    return this.producers.size === 0 && this.consumers.size === 0;
+  }
+  /**
+   * Verifies that every producer and consumer relationship connected to this
+   * node is represented consistently on both sides of the graph.
+   *
+   * It also verifies that dependency links have not observed a producer version
+   * that does not yet exist.
+   *
+   * This is intended as a debugging and testing invariant rather than a
+   * performance-critical operation.
+   *
+   * @returns `true` when every connected relationship is valid.
+   */
+  hasConsistentRelationships(): boolean {
+    // Every producer link must also appear in that producer's consumer set.
+    for (const link of this.producers) {
+      if (!link.producer.consumers.has(link)) {
+        return false;
+      }
+
+      if (link.consumer !== this) {
+        return false;
+      }
+
+      // A dependency cannot have observed a future producer version.
+      if (link.version > link.producer.version) {
+        return false;
+      }
+    }
+
+    // Every consumer link must also appear in that consumer's producer set.
+    for (const link of this.consumers) {
+      if (!link.consumer.producers.has(link)) {
+        return false;
+      }
+
+      if (link.producer !== this) {
+        return false;
+      }
+
+      // The shared link must agree with this node as its producer.
+      if (link.version > this.version) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+  /**
+   * Returns whether this node's dependency relationships are currently fresh.
+   *
+   * A node is fresh when none of its producer links observe an older producer
+   * version. Structural graph consistency is intentionally not checked here.
+   *
+   * @returns `true` when every producer dependency is up to date.
+   */
+  hasFreshProducers(): boolean {
+    // Check every producer link for a version mismatch.
+    for (const link of this.producers) {
+      if (link.hasChanged()) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+  /**
+   * Returns whether this node is structurally valid and its producer
+   * dependencies are currently fresh.
+   *
+   * This is a convenience diagnostic method. It does not modify the node.
+   *
+   * @returns `true` when graph relationships are consistent and all producer
+   * dependencies are fresh.
+   */
+  isHealthy(): boolean {
+    // Structural consistency and reactive freshness are independent checks,
+    // so both must pass for the node to be considered healthy.
+    return this.hasConsistentRelationships() && this.hasFreshProducers();
   }
 }
