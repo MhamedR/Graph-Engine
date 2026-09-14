@@ -22,8 +22,21 @@ export interface ReactiveRuntimeState {
 
   /** Whether the scheduler is currently flushing a batch. */
   isFlushing: boolean;
+
   /** Number of reactive nodes with deferred change work. */
   pendingChangeCount: number;
+
+  /** Whether the runtime is currently inside a batch. */
+  isBatching: boolean;
+
+  /** Current batch nesting depth. */
+  batchDepth: number;
+
+  /** Number of distinct nodes changed during the active batch. */
+  batchedChangeCount: number;
+
+  /** Number of tasks waiting for the current batch to complete. */
+  deferredBatchTaskCount: number;
 }
 /**
  * Coordinates global state for the reactive system.
@@ -64,6 +77,27 @@ export class ReactiveRuntime {
    */
   private _disposed = false;
   public readonly scheduler = new ReactiveScheduler();
+  /**
+   * Tracks whether the runtime is currently inside a reactive batch.
+   *
+   * Batching allows multiple state changes to be grouped into one logical
+   * reactive update.
+   */
+  private _batchDepth = 0;
+  /**
+   * Stores nodes whose values changed during the current batch.
+   *
+   * A Set ensures that multiple changes to the same node are coalesced into
+   * one batch-level record.
+   */
+  private readonly batchedChanges = new Set<ReactiveNode>();
+  /**
+   * Stores work that must wait until the current outermost batch completes.
+   *
+   * A Set prevents the same callback reference from being queued more than
+   * once during a batch.
+   */
+  private readonly afterBatchTasks = new Set<() => void>();
   /**
    * Registers a reactive node with this runtime.
    *
@@ -115,6 +149,16 @@ export class ReactiveRuntime {
     return this.nodes.size;
   }
   /**
+   * Returns the number of distinct reactive nodes changed during the current
+   * batch.
+   *
+   * @returns Number of nodes recorded in the active batch.
+   */
+  get batchedChangeCount(): number {
+    // The Set automatically coalesces repeated changes to the same node.
+    return this.batchedChanges.size;
+  }
+  /**
    * Marks a reactive node as changed immediately.
    *
    * The runtime advances the global epoch, updates the node's value version,
@@ -138,6 +182,11 @@ export class ReactiveRuntime {
 
     // Update the node's value version and propagate invalidation.
     const invalidatedConsumers = node.markValueChanged();
+    // Record the changed node when inside a batch so the outer batch can later
+    // coordinate its pending reactive work.
+    if (this.isBatching) {
+      this.batchedChanges.add(node);
+    }
 
     return {
       epoch,
@@ -211,6 +260,10 @@ export class ReactiveRuntime {
       hasPendingWork: this.scheduler.hasPendingWork,
       isFlushing: this.scheduler.isFlushing,
       pendingChangeCount: this.pendingChangeCount,
+      batchedChangeCount: this.batchedChangeCount,
+      isBatching: this.isBatching,
+      batchDepth: this.batchDepth,
+      deferredBatchTaskCount: this.deferredBatchTaskCount,
     };
   }
   /**
@@ -231,6 +284,34 @@ export class ReactiveRuntime {
   get disposed(): boolean {
     // Expose the runtime lifecycle state without allowing external mutation.
     return this._disposed;
+  }
+  /**
+   * Returns whether the runtime is currently executing inside a batch.
+   *
+   * @returns `true` when at least one batch is active.
+   */
+  get isBatching(): boolean {
+    // A positive depth means one or more nested batches are active.
+    return this._batchDepth > 0;
+  }
+  /**
+   * Returns the current batch nesting depth.
+   *
+   * @returns Number of active nested batches.
+   */
+  get batchDepth(): number {
+    // Expose the nesting depth for diagnostics without allowing mutation.
+    return this._batchDepth;
+  }
+  /**
+   * Returns the number of tasks waiting for the current outermost batch to
+   * complete.
+   *
+   * @returns Number of deferred batch tasks.
+   */
+  get deferredBatchTaskCount(): number {
+    // Expose the deferred-task collection size without exposing the collection.
+    return this.afterBatchTasks.size;
   }
   /**
    * Schedules a reactive value change for a later scheduler flush.
@@ -336,8 +417,8 @@ export class ReactiveRuntime {
   /**
    * Disposes every reactive node registered with this runtime.
    *
-   * Disposal isolates all registered nodes from the dependency graph and then
-   * clears the runtime registry.
+   * Disposal isolates all registered nodes and clears every form of pending
+   * runtime work.
    *
    * This is intended for shutting down an entire reactive runtime.
    */
@@ -351,9 +432,77 @@ export class ReactiveRuntime {
       this.disposeNode(node);
     }
 
-    // Clear any scheduler work that may still be waiting.
+    // Clear scheduler work that is still waiting to execute.
     this.clearScheduledWork();
+
+    // Clear deferred work waiting for an active batch to complete.
+    this.afterBatchTasks.clear();
+
+    // Clear temporary batch-change bookkeeping.
+    this.batchedChanges.clear();
+
+    // Reset the batch depth as part of shutting down the runtime.
+    this._batchDepth = 0;
+
     // Mark the runtime as permanently disposed after all cleanup has completed.
     this._disposed = true;
+  }
+  /**
+   * Executes a function inside a reactive batch.
+   *
+   * Batches may be nested. The runtime remains in batching mode until the
+   * outermost batch completes.
+   *
+   * @param callback - Work to execute inside the batch.
+   * @throws {Error} If this runtime has already been disposed.
+   * @throws {unknown} Any error thrown by the callback.
+   */
+  batch<T>(callback: () => T): T {
+    // A disposed runtime cannot execute new reactive work.
+    if (this._disposed) {
+      throw new Error('Cannot batch work on a disposed runtime.');
+    }
+
+    // Enter the next batch nesting level.
+    this._batchDepth++;
+
+    try {
+      // Execute the caller's work while batching is active.
+      return callback();
+    } finally {
+      // Leave the current batch level even when the callback throws.
+      this._batchDepth--;
+
+      // Only the outermost batch owns the complete batch lifecycle.
+      if (this._batchDepth === 0) {
+        // Capture deferred work before clearing the collection so tasks can
+        // safely schedule additional work if necessary.
+        const tasks = [...this.afterBatchTasks];
+
+        // Clear the current batch's temporary state.
+        this.afterBatchTasks.clear();
+        this.batchedChanges.clear();
+
+        // Execute work that was deferred until batching completed.
+        for (const task of tasks) {
+          task();
+        }
+      }
+    }
+  }
+  /**
+   * Defers work until the current outermost batch completes.
+   *
+   * @param task - Work that should execute after batching ends.
+   * @throws {Error} If this runtime has already been disposed.
+   */
+  deferUntilBatchComplete(task: () => void): void {
+    // A disposed runtime cannot accept new deferred work.
+    if (this._disposed) {
+      throw new Error('Cannot defer work on a disposed runtime.');
+    }
+
+    // Store the task until the outermost batch completes.
+    this.afterBatchTasks.add(task);
   }
 }

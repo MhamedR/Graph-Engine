@@ -1462,6 +1462,33 @@ function testRuntimeStateSnapshot(): void {
   assert(!flushedState.hasPendingWork, 'runtime should have no pending work after flush');
 
   assert(!flushedState.isFlushing, 'runtime should not be flushing after flush completes');
+
+  runtime.batch(() => {
+    assert(runtime.state.isBatching, 'runtime state should report active batching');
+
+    assert(runtime.state.batchDepth === 1, 'runtime state should report the current batch depth');
+
+    assert(
+      runtime.state.batchedChangeCount === 0,
+      'runtime state should initially report no batched changes',
+    );
+  });
+
+  const source = new ReactiveValue(runtime, 'state-source', 0);
+
+  runtime.batch(() => {
+    source.value = 1;
+
+    assert(
+      runtime.state.batchedChangeCount === 1,
+      'runtime state should report one batched change',
+    );
+  });
+
+  assert(
+    runtime.state.batchedChangeCount === 0,
+    'runtime state should clear batched changes after the batch',
+  );
 }
 
 /**
@@ -1970,6 +1997,165 @@ function testCompleteRuntimeLifecycle(): void {
   assert(runtime.nodeCount === 0, 'runtime registry should remain empty after repeated disposal');
 }
 
+/**
+ * Verifies that effect scheduling is deferred during a batch and that
+ * multiple invalidations of the same effect produce only one scheduled task.
+ */
+function testBatchedEffectScheduling(): void {
+  const runtime = new ReactiveRuntime();
+  const source = new ReactiveValue(runtime, 'source', 0);
+
+  let executions = 0;
+
+  const effect = new ReactiveEffect(runtime, 'effect', () => {
+    // Establish the dependency between the effect and source.
+    source.value;
+
+    // Count actual executions.
+    executions++;
+  });
+
+  // Establish the initial dependency graph.
+  effect.run();
+
+  assert(executions === 1, 'effect should execute once during initial setup');
+
+  runtime.batch(() => {
+    // Multiple changes happen inside one logical batch.
+    source.value = 1;
+    source.value = 2;
+    source.value = 3;
+
+    assert(effect.isDirty, 'effect should be dirty inside the batch');
+
+    assert(!effect.isScheduled, 'effect should not be scheduled while the batch is active');
+
+    assert(
+      runtime.scheduler.pendingCount === 0,
+      'scheduler should remain empty while the batch is active',
+    );
+  });
+
+  assert(effect.isScheduled, 'effect should be scheduled when the outer batch completes');
+
+  assert(
+    runtime.scheduler.pendingCount === 1,
+    'multiple batched invalidations should create one scheduled task',
+  );
+
+  // Execute the deferred effect.
+  runtime.flush();
+
+  assert(executions === 2, 'effect should execute once after the batched changes are flushed');
+
+  assert(!effect.isDirty, 'effect should be clean after the scheduled execution');
+
+  assert(!effect.isScheduled, 'effect should no longer be scheduled after execution');
+}
+
+/**
+ * Verifies that nested batches share one outer scheduling boundary.
+ *
+ * The effect should not be scheduled until the outermost batch completes,
+ * even when changes occur across multiple nested batch scopes.
+ */
+function testNestedBatchScheduling(): void {
+  const runtime = new ReactiveRuntime();
+  const source = new ReactiveValue(runtime, 'source', 0);
+
+  let executions = 0;
+
+  const effect = new ReactiveEffect(runtime, 'effect', () => {
+    // Establish the dependency between the effect and source.
+    source.value;
+
+    // Count actual executions.
+    executions++;
+  });
+
+  // Establish the initial dependency graph.
+  effect.run();
+
+  runtime.batch(() => {
+    // First change occurs in the outer batch.
+    source.value = 1;
+
+    runtime.batch(() => {
+      // Additional changes occur in a nested batch.
+      source.value = 2;
+      source.value = 3;
+
+      assert(runtime.batchDepth === 2, 'nested batch should have depth two');
+
+      assert(
+        runtime.scheduler.pendingCount === 0,
+        'scheduler should remain empty inside nested batch',
+      );
+    });
+
+    assert(
+      runtime.batchDepth === 1,
+      'outer batch should remain active after nested batch completes',
+    );
+
+    assert(
+      runtime.scheduler.pendingCount === 0,
+      'scheduler should remain empty until the outer batch completes',
+    );
+  });
+
+  assert(runtime.batchDepth === 0, 'all batch scopes should be closed');
+
+  assert(
+    runtime.scheduler.pendingCount === 1,
+    'outer batch completion should create one scheduled effect',
+  );
+
+  runtime.flush();
+
+  assert(executions === 2, 'nested batched changes should produce one effect execution');
+}
+
+/**
+ * Verifies that a failed batch does not leave deferred work behind.
+ */
+function testFailedBatchClearsDeferredWork(): void {
+  const runtime = new ReactiveRuntime();
+
+  let deferredExecutions = 0;
+
+  let threw = false;
+
+  try {
+    runtime.batch(() => {
+      // Queue work that should normally execute when the batch completes.
+      runtime.deferUntilBatchComplete(() => {
+        deferredExecutions++;
+      });
+
+      // Force the batch callback to fail.
+      throw new Error('batch failed');
+    });
+  } catch (error) {
+    threw = true;
+
+    // Narrow the caught value before inspecting it.
+    if (!(error instanceof Error)) {
+      throw new Error('batch failure should throw an Error');
+    }
+
+    assert(error.message === 'batch failed', 'batch should propagate the callback error');
+  }
+
+  assert(threw, 'failed batch should propagate the callback error');
+
+  assert(deferredExecutions === 1, 'deferred work should still execute when the batch unwinds');
+
+  assert(runtime.batchDepth === 0, 'failed batch should restore zero batch depth');
+
+  assert(!runtime.isBatching, 'failed batch should leave the runtime outside batching mode');
+}
+
 // Run the effect test suite.
 testEffectExecution();
 testEffectInvalidation();
@@ -2016,3 +2202,6 @@ testDisposedRuntimeRejectsScheduling();
 testDisposedRuntimeRejectsScheduledChange();
 testDisposedRuntimeRejectsMarkChanged();
 testCompleteRuntimeLifecycle();
+testBatchedEffectScheduling();
+testNestedBatchScheduling();
+testFailedBatchClearsDeferredWork();

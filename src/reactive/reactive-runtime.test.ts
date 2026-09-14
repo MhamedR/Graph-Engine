@@ -1,6 +1,7 @@
 import {ReactiveRuntime} from './reactive-runtime.js';
 import {assert} from '../test/assert.js';
 import {ReactiveNode} from './reactive-node.js';
+import {ReactiveValue} from './reactive-value.js';
 
 /**
  * Verifies that every runtime owns a scheduler.
@@ -240,6 +241,106 @@ function testRuntimeFlushOne(): void {
   assert(!runtime.hasPendingWork, 'runtime should have no pending work after all tasks execute');
 }
 
+/**
+ * Verifies that batch() correctly enters and exits batching mode, including
+ * nested batches and callback errors.
+ */
+function testRuntimeBatchBoundary(): void {
+  const runtime = new ReactiveRuntime();
+
+  assert(!runtime.isBatching, 'runtime should initially be outside a batch');
+
+  assert(runtime.batchDepth === 0, 'runtime should initially have zero batch depth');
+
+  const result = runtime.batch(() => {
+    assert(runtime.isBatching, 'runtime should be batching inside batch()');
+
+    assert(runtime.batchDepth === 1, 'outer batch should have depth one');
+
+    const nestedResult = runtime.batch(() => {
+      assert(runtime.isBatching, 'runtime should remain batching inside nested batch()');
+
+      assert(runtime.batchDepth === 2, 'nested batch should increase depth to two');
+
+      return 42;
+    });
+
+    assert(nestedResult === 42, 'nested batch should return its callback result');
+
+    assert(
+      runtime.batchDepth === 1,
+      'outer batch should remain active after nested batch completes',
+    );
+
+    return 'complete';
+  });
+
+  assert(result === 'complete', 'batch should return the outer callback result');
+
+  assert(!runtime.isBatching, 'runtime should leave batching mode after batch()');
+
+  assert(runtime.batchDepth === 0, 'runtime should return to zero batch depth after batch()');
+
+  let threw = false;
+
+  try {
+    runtime.batch(() => {
+      // Verify that cleanup occurs even when the batch callback throws.
+      throw new Error('batch failure');
+    });
+  } catch (error) {
+    threw = true;
+
+    // Narrow the caught value before inspecting the error message.
+    if (!(error instanceof Error)) {
+      throw new Error('batch failure should throw an Error');
+    }
+
+    assert(error.message === 'batch failure', 'batch should propagate the callback error');
+  }
+
+  assert(threw, 'batch should propagate callback errors');
+
+  assert(!runtime.isBatching, 'runtime should leave batching mode after a failed batch');
+
+  assert(runtime.batchDepth === 0, 'failed batch should restore zero batch depth');
+}
+
+/**
+ * Verifies that multiple changes to the same node are coalesced into one
+ * batch-level change record.
+ */
+function testBatchedChangeCoalescing(): void {
+  const runtime = new ReactiveRuntime();
+  const source = new ReactiveValue(runtime, 'source', 0);
+
+  runtime.batch(() => {
+    // The same node changes multiple times within one batch.
+    source.value = 1;
+
+    assert(runtime.batchedChangeCount === 1, 'first change should create one batched change');
+
+    source.value = 2;
+
+    assert(
+      runtime.batchedChangeCount === 1,
+      'repeated change to the same node should remain coalesced',
+    );
+
+    source.value = 3;
+
+    assert(
+      runtime.batchedChangeCount === 1,
+      'third change to the same node should remain coalesced',
+    );
+  });
+
+  assert(
+    runtime.batchedChangeCount === 0,
+    'batched change should remain recorded after the batch currently ends',
+  );
+}
+
 // Run the runtime scheduler tests.
 testRuntimeOwnsScheduler();
 testScheduledChange();
@@ -248,3 +349,5 @@ testScheduledChangeDeduplication();
 testScheduledChangePropagatesToAllConsumers();
 testClearScheduledWork();
 testRuntimeFlushOne();
+testRuntimeBatchBoundary();
+testBatchedChangeCoalescing();

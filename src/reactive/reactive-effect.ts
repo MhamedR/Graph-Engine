@@ -64,8 +64,25 @@ export class ReactiveEffect {
     // participates in runtime-level inspection and diagnostics.
     this.runtime.registerNode(this.node);
 
-    // Connect dependency invalidation to deferred effect scheduling.
+    /**
+     * Registers the effect's invalidation behavior.
+     *
+     * Effects invalidated inside a batch defer their scheduling until the
+     * outermost batch completes. Outside a batch, scheduling remains immediate.
+     */
     this.node.setOnInvalidate(() => {
+      // When batching is active, postpone scheduling until the batch finishes.
+      if (this.runtime.isBatching) {
+        this.runtime.deferUntilBatchComplete(() => {
+          // The effect may have been destroyed while the batch was running, so
+          // schedule() remains responsible for checking its lifecycle state.
+          this.schedule();
+        });
+
+        return;
+      }
+
+      // Outside a batch, preserve the normal immediate scheduling behavior.
       this.schedule();
     });
   }
