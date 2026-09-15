@@ -2,13 +2,10 @@
  * End-to-end integration test for the reactive graph.
  *
  * This verifies that values, computed nodes, dependency propagation,
- * scheduling, and effects work together as one system.
+ * scheduling, and effects work together as one system through the public API.
  */
 
-import {ReactiveComputed} from './reactive-computed.js';
-import {ReactiveEffect} from './reactive-effect.js';
-import {ReactiveRuntime} from './reactive-runtime.js';
-import {ReactiveValue} from './reactive-value.js';
+import {ReactiveComputed, ReactiveEffect, ReactiveRuntime, ReactiveValue} from '../index.js';
 import {assert} from '../test/assert.js';
 
 /**

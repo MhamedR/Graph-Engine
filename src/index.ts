@@ -1,9 +1,12 @@
 /**
  * Public entry point for the graph engine.
  *
- * Re-exports the reactive system so consumers can import the engine from
- * the package root instead of reaching into internal directories.
+ * Re-exports both the graph algorithms/data structures and the reactive
+ * engine from stable package-level entry points.
  */
 
-// Expose the complete reactive API from the package root.
+// Re-export the graph API.
+export * from './graph/index.js';
+
+// Re-export the reactive API.
 export * from './reactive/index.js';
