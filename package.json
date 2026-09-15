@@ -12,7 +12,8 @@
       "test:scheduler": "tsx src/reactive/scheduler.test.ts",
       "test:runtime": "tsx src/reactive/reactive-runtime.test.ts",
       "test:effect": "tsx src/reactive/reactive-effect.test.ts",
-      "test": "npm run test:reactive && npm run test:dynamic && npm run test:scheduler && npm run test:runtime && npm run test:effect",
+      "test:integration": "tsx src/reactive/reactive-integration.test.ts",
+      "test": "npm run test:reactive && npm run test:dynamic && npm run test:scheduler && npm run test:runtime && npm run test:effect && npm run test:integration",
       "format": "prettier --write .",
       "format:check": "prettier --check .",
       "prepare": "husky"

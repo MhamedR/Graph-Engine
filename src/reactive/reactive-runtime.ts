@@ -3,6 +3,11 @@ import {ReactiveNode} from './reactive-node.js';
 import {ReactiveContext} from './reactive-context.js';
 import {ReactiveLink} from './reactive-link.js';
 import {ReactiveScheduler} from './scheduler.js';
+import {
+  ReactiveGraphSnapshot,
+  ReactiveGraphSnapshotEdge,
+  ReactiveGraphSnapshotNode,
+} from './reactive-graph-snapshot.js';
 
 /**
  * Describes the observable diagnostic state of the reactive runtime.
@@ -37,6 +42,66 @@ export interface ReactiveRuntimeState {
 
   /** Number of tasks waiting for the current batch to complete. */
   deferredBatchTaskCount: number;
+}
+/**
+ * Describes aggregate metrics for the current reactive graph.
+ */
+export interface ReactiveGraphMetrics {
+  /** Number of registered reactive nodes. */
+  readonly nodeCount: number;
+
+  /** Number of dependency relationships between registered nodes. */
+  readonly edgeCount: number;
+
+  /** Number of currently dirty nodes. */
+  readonly dirtyNodeCount: number;
+
+  /** Number of currently computing nodes. */
+  readonly computingNodeCount: number;
+
+  /** Maximum number of direct producers attached to one node. */
+  readonly maxProducerCount: number;
+
+  /** Maximum number of direct consumers attached to one node. */
+  readonly maxConsumerCount: number;
+}
+/**
+ * Describes the complete diagnostic state of a reactive runtime.
+ */
+export interface ReactiveRuntimeInspection {
+  /** Current runtime lifecycle and scheduler state. */
+  readonly runtime: ReactiveRuntimeState;
+
+  /** Aggregate metrics for the registered reactive graph. */
+  readonly metrics: ReactiveGraphMetrics;
+
+  /** Detached snapshot of the current reactive graph. */
+  readonly graph: ReactiveGraphSnapshot;
+
+  /** Detailed diagnostic state for every registered node. */
+  readonly nodes: readonly ReactiveNodeInspection[];
+}
+/**
+ * Describes the diagnostic state of one registered reactive node.
+ */
+export interface ReactiveNodeInspection {
+  /** Unique identifier of the reactive node. */
+  readonly id: string;
+
+  /** Current node version. */
+  readonly version: number;
+
+  /** Whether the node is currently dirty. */
+  readonly dirty: boolean;
+
+  /** Whether the node is currently computing. */
+  readonly computing: boolean;
+
+  /** IDs of the node's direct producers. */
+  readonly producerIds: readonly string[];
+
+  /** IDs of the node's direct consumers. */
+  readonly consumerIds: readonly string[];
 }
 /**
  * Coordinates global state for the reactive system.
@@ -504,5 +569,202 @@ export class ReactiveRuntime {
 
     // Store the task until the outermost batch completes.
     this.afterBatchTasks.add(task);
+  }
+  /**
+   * Creates a diagnostic snapshot of every reactive node currently registered
+   * with this runtime.
+   *
+   * The snapshot contains node state and every producer-to-consumer dependency
+   * relationship.
+   *
+   * @returns A detached snapshot of the current reactive graph.
+   */
+  createGraphSnapshot(): ReactiveGraphSnapshot {
+    // Capture node state without exposing the actual ReactiveNode objects.
+    const nodes: ReactiveGraphSnapshotNode[] = this.getNodes().map((node) => ({
+      id: node.id,
+      version: node.version,
+      dirty: node.dirty,
+      computing: node.computing,
+      producerCount: node.producerCount,
+      consumerCount: node.consumerCount,
+    }));
+
+    // Collect every dependency relationship from the registered nodes.
+    const edges: ReactiveGraphSnapshotEdge[] = [];
+
+    /**
+     * Collects every dependency relationship from the registered nodes.
+     */
+    for (const node of this.getNodes()) {
+      // Use the public producer-link API rather than reaching into ReactiveNode's
+      // private dependency storage.
+      for (const link of node.getProducerLinks()) {
+        edges.push({
+          producerId: link.producer.id,
+          consumerId: link.consumer.id,
+          version: link.version,
+          stale: link.hasChanged(),
+        });
+      }
+    }
+
+    return {
+      nodes,
+      edges,
+    };
+  }
+  /**
+   * Calculates aggregate metrics for the currently registered reactive graph.
+   *
+   * @returns Current graph size, dependency, state, and fan-out metrics.
+   */
+  getGraphMetrics(): ReactiveGraphMetrics {
+    const nodes = this.getNodes();
+
+    let edgeCount = 0;
+    let dirtyNodeCount = 0;
+    let computingNodeCount = 0;
+    let maxProducerCount = 0;
+    let maxConsumerCount = 0;
+
+    for (const node of nodes) {
+      // Count each producer relationship exactly once.
+      edgeCount += node.producerCount;
+
+      // Track current node state.
+      if (node.dirty) {
+        dirtyNodeCount++;
+      }
+
+      if (node.computing) {
+        computingNodeCount++;
+      }
+
+      // Track the largest direct dependency fan-in and fan-out.
+      maxProducerCount = Math.max(maxProducerCount, node.producerCount);
+      maxConsumerCount = Math.max(maxConsumerCount, node.consumerCount);
+    }
+
+    return {
+      nodeCount: nodes.length,
+      edgeCount,
+      dirtyNodeCount,
+      computingNodeCount,
+      maxProducerCount,
+      maxConsumerCount,
+    };
+  }
+  /**
+   * Creates a complete diagnostic view of the current reactive runtime.
+   *
+   * The inspection combines runtime lifecycle state, aggregate graph metrics,
+   * a detached graph snapshot, and detailed state for every registered node.
+   *
+   * @returns Complete diagnostic information for the current runtime.
+   */
+  inspect(): ReactiveRuntimeInspection {
+    // Capture the runtime's current scheduler and lifecycle state.
+    const runtime = this.state;
+
+    // Calculate aggregate statistics for the registered reactive graph.
+    const metrics = this.getGraphMetrics();
+
+    // Capture the current dependency graph without exposing live graph objects.
+    const graph = this.createGraphSnapshot();
+
+    // Capture detailed information for every registered node.
+    const nodes: ReactiveNodeInspection[] = this.getNodes().map((node) => ({
+      id: node.id,
+      version: node.version,
+      dirty: node.dirty,
+      computing: node.computing,
+      producerIds: node.getProducerIds(),
+      consumerIds: node.getConsumerIds(),
+    }));
+
+    return {
+      runtime,
+      metrics,
+      graph,
+      nodes,
+    };
+  }
+  /**
+   * Creates a human-readable diagnostic report for the current runtime.
+   *
+   * The report is intended for terminal debugging and logging rather than
+   * machine-readable processing.
+   *
+   * @returns Multi-line diagnostic report describing the runtime and graph.
+   */
+  describe(): string {
+    // Build the complete diagnostic state once so every section represents
+    // the same logical inspection.
+    const inspection = this.inspect();
+
+    const lines: string[] = [];
+
+    lines.push('Reactive Runtime');
+    lines.push('================');
+    lines.push(`Epoch: ${inspection.runtime.epoch}`);
+    lines.push(`Nodes: ${inspection.metrics.nodeCount}`);
+    lines.push(`Edges: ${inspection.metrics.edgeCount}`);
+    lines.push(`Dirty nodes: ${inspection.metrics.dirtyNodeCount}`);
+    lines.push(`Computing nodes: ${inspection.metrics.computingNodeCount}`);
+    lines.push(`Pending tasks: ${inspection.runtime.pendingTaskCount}`);
+    lines.push(`Batching: ${inspection.runtime.isBatching}`);
+    lines.push('');
+    lines.push('Nodes');
+    lines.push('-----');
+
+    // Add one compact diagnostic line for every registered node.
+    for (const node of inspection.nodes) {
+      lines.push(
+        `${node.id} ` +
+          `(version=${node.version}, ` +
+          `dirty=${node.dirty}, ` +
+          `computing=${node.computing}, ` +
+          `producers=[${node.producerIds.join(', ')}], ` +
+          `consumers=[${node.consumerIds.join(', ')}])`,
+      );
+    }
+
+    return lines.join('\n');
+  }
+  /**
+   * Exports the current reactive dependency graph as Graphviz DOT text.
+   *
+   * Node labels include the current version and dirty state so the exported
+   * graph can be used for debugging as well as structural visualization.
+   *
+   * @returns Graphviz DOT representation of the current reactive graph.
+   */
+  toDot(): string {
+    // Capture the graph once so the exported structure is internally consistent.
+    const graph = this.createGraphSnapshot();
+
+    const lines: string[] = [];
+
+    lines.push('digraph ReactiveGraph {');
+
+    // Declare every registered node with diagnostic state information.
+    for (const node of graph.nodes) {
+      const label = `${node.id}\\n` + `version=${node.version}\\n` + `dirty=${node.dirty}`;
+
+      // Highlight dirty nodes so invalidated parts of the graph are easy to see.
+      const style = node.dirty ? 'style=filled' : 'style=solid';
+
+      lines.push(`  "${node.id}" [label="${label}", ${style}];`);
+    }
+
+    // Declare every dependency as a directed producer-to-consumer edge.
+    for (const edge of graph.edges) {
+      lines.push(`  "${edge.producerId}" -> "${edge.consumerId}";`);
+    }
+
+    lines.push('}');
+
+    return lines.join('\n');
   }
 }

@@ -40,6 +40,9 @@ export class ReactiveComputed<T> {
   ) {
     // Create the reactive node representing this computed value.
     this.node = new ReactiveNode(id);
+    // Register the computed node so the runtime can track it for scheduling,
+    // diagnostics, and graph snapshots.
+    this.runtime.registerNode(this.node);
   }
 
   /**

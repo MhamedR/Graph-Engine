@@ -205,6 +205,19 @@ export class ReactiveNode {
     return [...this.producers].map((link) => link.producer);
   }
   /**
+   * Returns the dependency links from this node to all of its producers.
+   *
+   * A copy of the internal set is returned so callers cannot mutate the
+   * node's dependency graph directly.
+   *
+   * @returns A new set containing this node's producer links.
+   */
+  getProducerLinks(): Set<ReactiveLink> {
+    // Return a defensive copy so the internal dependency relationships remain
+    // controlled by ReactiveNode.
+    return new Set(this.producers);
+  }
+  /**
    * Advances this node to a new value version.
    *
    * This is a low-level state operation. Change propagation is deliberately

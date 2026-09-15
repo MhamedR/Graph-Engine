@@ -2,6 +2,8 @@ import {ReactiveRuntime} from './reactive-runtime.js';
 import {assert} from '../test/assert.js';
 import {ReactiveNode} from './reactive-node.js';
 import {ReactiveValue} from './reactive-value.js';
+import {ReactiveComputed} from './reactive-computed.js';
+import {diffReactiveGraphSnapshots} from './reactive-graph-diff.js';
 
 /**
  * Verifies that every runtime owns a scheduler.
@@ -341,6 +343,277 @@ function testBatchedChangeCoalescing(): void {
   );
 }
 
+/**
+ * Verifies that a graph snapshot captures nodes and their dependency
+ * relationships without exposing the live graph objects.
+ */
+function testGraphSnapshot(): void {
+  const runtime = new ReactiveRuntime();
+
+  const source = new ReactiveValue(runtime, 'source', 1);
+
+  const doubled = new ReactiveComputed(runtime, 'doubled', () => source.value * 2);
+
+  // Evaluate the computed value so the dependency relationship is established.
+  assert(doubled.value === 2, 'computed value should be initialized');
+
+  const snapshot = runtime.createGraphSnapshot();
+
+  assert(snapshot.nodes.length === 2, 'snapshot should contain both nodes');
+
+  assert(snapshot.edges.length === 1, 'snapshot should contain one dependency edge');
+
+  const edge = snapshot.edges[0];
+
+  assert(edge?.producerId === 'source', 'edge should identify the producer');
+
+  assert(edge?.consumerId === 'doubled', 'edge should identify the consumer');
+
+  assert(edge?.stale === false, 'dependency should initially be fresh');
+
+  // Changing the source should make the dependency stale in the snapshot.
+  source.value = 2;
+
+  const changedSnapshot = runtime.createGraphSnapshot();
+  const changedEdge = changedSnapshot.edges[0];
+
+  assert(changedEdge?.stale === true, 'dependency should become stale after the producer changes');
+}
+
+/**
+ * Verifies that graph snapshots can be compared to detect structural
+ * dependency changes and node state changes.
+ */
+function testGraphSnapshotDiff(): void {
+  const runtime = new ReactiveRuntime();
+
+  const source = new ReactiveValue(runtime, 'source', 1);
+
+  const firstSnapshot = runtime.createGraphSnapshot();
+
+  const doubled = new ReactiveComputed(runtime, 'doubled', () => source.value * 2);
+
+  // Evaluate the computed value so its dependency relationship is established.
+  assert(doubled.value === 2, 'computed value should be initialized');
+
+  const secondSnapshot = runtime.createGraphSnapshot();
+
+  const diff = diffReactiveGraphSnapshots(firstSnapshot, secondSnapshot);
+
+  assert(diff.addedNodes.length === 1, 'diff should detect the newly added computed node');
+
+  assert(diff.addedNodes[0]?.id === 'doubled', 'diff should identify the added computed node');
+
+  assert(diff.addedEdges.length === 1, 'diff should detect the new dependency edge');
+
+  assert(diff.addedEdges[0]?.producerId === 'source', 'diff should identify the edge producer');
+
+  assert(diff.addedEdges[0]?.consumerId === 'doubled', 'diff should identify the edge consumer');
+
+  assert(diff.removedNodes.length === 0, 'diff should not report removed nodes');
+
+  assert(diff.removedEdges.length === 0, 'diff should not report removed edges');
+
+  // Change the source so the existing source node has a new version.
+  source.value = 2;
+
+  const thirdSnapshot = runtime.createGraphSnapshot();
+
+  const stateDiff = diffReactiveGraphSnapshots(secondSnapshot, thirdSnapshot);
+
+  // The source change invalidates downstream state as well, so more than one
+  // node may legitimately appear in the changed-node collection.
+  assert(stateDiff.changedNodes.length >= 1, 'diff should detect at least one changed node');
+
+  const changedSource = stateDiff.changedNodes.find((change) => change.current.id === 'source');
+
+  assert(changedSource !== undefined, 'diff should identify the changed source node');
+
+  assert(changedSource!.current.version === 1, 'diff should capture the source version change');
+}
+
+/**
+ * Verifies that runtime graph metrics correctly describe the current
+ * reactive graph.
+ */
+function testGraphMetrics(): void {
+  const runtime = new ReactiveRuntime();
+
+  const source = new ReactiveValue(runtime, 'source', 1);
+
+  const doubled = new ReactiveComputed(runtime, 'doubled', () => source.value * 2);
+
+  // Evaluate the computed value so the source-to-computed dependency exists.
+  assert(doubled.value === 2, 'computed value should be initialized');
+
+  const metrics = runtime.getGraphMetrics();
+
+  assert(metrics.nodeCount === 2, 'metrics should count both registered nodes');
+
+  assert(metrics.edgeCount === 1, 'metrics should count the source-to-computed dependency');
+
+  assert(metrics.dirtyNodeCount === 0, 'evaluated graph should initially contain no dirty nodes');
+
+  assert(metrics.computingNodeCount === 0, 'no node should remain computing after evaluation');
+
+  assert(metrics.maxProducerCount === 1, 'computed node should have one producer');
+
+  assert(metrics.maxConsumerCount === 1, 'source node should have one consumer');
+}
+
+/**
+ * Verifies that runtime inspection combines runtime state, graph metrics,
+ * and the current graph snapshot into one diagnostic object.
+ */
+function testRuntimeInspection(): void {
+  const runtime = new ReactiveRuntime();
+
+  const source = new ReactiveValue(runtime, 'source', 1);
+
+  const doubled = new ReactiveComputed(runtime, 'doubled', () => source.value * 2);
+
+  // Evaluate the computed value so the dependency relationship is established.
+  assert(doubled.value === 2, 'computed value should be initialized');
+
+  // Capture the complete runtime inspection after initialization.
+  const inspection = runtime.inspect();
+
+  assert(inspection.runtime.epoch === 0, 'inspection should report the current runtime epoch');
+
+  assert(inspection.metrics.nodeCount === 2, 'inspection should report both registered nodes');
+
+  assert(
+    inspection.metrics.edgeCount === 1,
+    'inspection should report the source-to-computed dependency',
+  );
+
+  assert(inspection.graph.nodes.length === 2, 'inspection should include both graph nodes');
+
+  assert(inspection.graph.edges.length === 1, 'inspection should include the dependency edge');
+
+  /**
+   * Verify that inspection also exposes detailed state for each registered node.
+   */
+  const sourceInspection = inspection.nodes.find((node) => node.id === 'source')!;
+
+  const doubledInspection = inspection.nodes.find((node) => node.id === 'doubled')!;
+
+  assert(sourceInspection !== undefined, 'inspection should include the source node');
+
+  assert(doubledInspection !== undefined, 'inspection should include the computed node');
+
+  assert(
+    sourceInspection.consumerIds.includes('doubled'),
+    'source inspection should identify doubled as a consumer',
+  );
+
+  assert(
+    doubledInspection.producerIds.includes('source'),
+    'computed inspection should identify source as a producer',
+  );
+
+  assert(doubledInspection.dirty === false, 'evaluated computed node should not be dirty');
+}
+
+/**
+ * Verifies that the runtime can produce a useful human-readable diagnostic
+ * report.
+ */
+function testRuntimeDescription(): void {
+  const runtime = new ReactiveRuntime();
+
+  const source = new ReactiveValue(runtime, 'source', 1);
+
+  const doubled = new ReactiveComputed(runtime, 'doubled', () => source.value * 2);
+
+  // Evaluate the computed value so the dependency graph is established.
+  assert(doubled.value === 2, 'computed value should be initialized');
+
+  // Generate the human-readable diagnostic report.
+  const description = runtime.describe();
+
+  assert(
+    description.includes('Reactive Runtime'),
+    'description should contain the runtime heading',
+  );
+
+  assert(description.includes('Nodes: 2'), 'description should report the node count');
+
+  assert(description.includes('Edges: 1'), 'description should report the edge count');
+
+  assert(description.includes('source'), 'description should include the source node');
+
+  assert(description.includes('doubled'), 'description should include the computed node');
+
+  assert(
+    description.includes('producers=[source]'),
+    'description should show the computed node producer',
+  );
+
+  assert(
+    description.includes('consumers=[doubled]'),
+    'description should show the source node consumer',
+  );
+}
+
+/**
+ * Verifies that the reactive graph can be exported as Graphviz DOT text.
+ */
+function testRuntimeDotExport(): void {
+  const runtime = new ReactiveRuntime();
+
+  const source = new ReactiveValue(runtime, 'source', 1);
+
+  const doubled = new ReactiveComputed(runtime, 'doubled', () => source.value * 2);
+
+  // Evaluate the computed value so the dependency relationship exists.
+  assert(doubled.value === 2, 'computed value should be initialized');
+
+  // Export the current reactive graph.
+  const dot = runtime.toDot();
+
+  assert(dot.includes('digraph ReactiveGraph'), 'DOT output should contain the graph declaration');
+
+  assert(dot.includes('"source" [label="source'), 'DOT output should declare the source node');
+
+  assert(dot.includes('"doubled";'), 'DOT output should declare the computed node');
+
+  assert(
+    dot.includes('"source" -> "doubled";'),
+    'DOT output should contain the source-to-computed edge',
+  );
+
+  assert(dot.includes('version='), 'DOT output should include the node version');
+
+  assert(dot.includes('dirty=false'), 'DOT output should include the node dirty state');
+}
+
+/**
+ * Verifies that DOT output marks a computed node as dirty after its
+ * producer changes.
+ */
+function testRuntimeDotDirtyState(): void {
+  const runtime = new ReactiveRuntime();
+
+  const source = new ReactiveValue(runtime, 'source', 1);
+
+  const doubled = new ReactiveComputed(runtime, 'doubled', () => source.value * 2);
+
+  // Evaluate the computed value so its dependency is established.
+  assert(doubled.value === 2, 'computed value should be initialized');
+
+  // Changing the producer should invalidate the computed node.
+  source.value = 2;
+
+  // Export the graph while the computed node is dirty.
+  const dot = runtime.toDot();
+
+  assert(
+    dot.includes('dirty=true'),
+    'DOT output should mark the invalidated computed node as dirty',
+  );
+}
+
 // Run the runtime scheduler tests.
 testRuntimeOwnsScheduler();
 testScheduledChange();
@@ -351,3 +624,10 @@ testClearScheduledWork();
 testRuntimeFlushOne();
 testRuntimeBatchBoundary();
 testBatchedChangeCoalescing();
+testGraphSnapshot();
+testGraphSnapshotDiff();
+testGraphMetrics();
+testRuntimeInspection();
+testRuntimeDescription();
+testRuntimeDotExport();
+testRuntimeDotDirtyState();
