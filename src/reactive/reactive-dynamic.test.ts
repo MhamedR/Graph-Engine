@@ -122,3 +122,137 @@ console.log('Reactive dynamic dependency test passed.');
     'dynamic dependency switch should clear changed-producer state',
   );
 }
+
+/**
+ * Verifies that a computed removes a producer that is no longer read during
+ * a later computation.
+ */
+function testComputedRemovesDynamicDependency(): void {
+  const runtime = new ReactiveRuntime();
+
+  const condition = new ReactiveValue(runtime, 'condition', true);
+  const first = new ReactiveValue(runtime, 'first', 10);
+  const second = new ReactiveValue(runtime, 'second', 20);
+
+  const computed = new ReactiveComputed(runtime, 'computed', () =>
+    condition.value ? first.value : second.value,
+  );
+
+  // Initial computation establishes:
+  //
+  // condition -> computed
+  // first     -> computed
+  computed.value;
+
+  assert(
+    computed.node.hasProducer(condition.node),
+    'computed should initially depend on condition',
+  );
+
+  assert(computed.node.hasProducer(first.node), 'computed should initially depend on first');
+
+  assert(!computed.node.hasProducer(second.node), 'computed should not initially depend on second');
+
+  // Switch the dynamic branch.
+  condition.value = false;
+
+  computed.value;
+
+  assert(
+    computed.node.hasProducer(condition.node),
+    'computed should continue depending on condition',
+  );
+
+  assert(!computed.node.hasProducer(first.node), 'computed should remove the old first dependency');
+
+  assert(computed.node.hasProducer(second.node), 'computed should add the new second dependency');
+}
+
+/**
+ * Verifies that a removed dynamic producer no longer triggers the computed.
+ */
+function testRemovedDynamicDependencyStopsInvalidation(): void {
+  const runtime = new ReactiveRuntime();
+
+  const condition = new ReactiveValue(runtime, 'condition', true);
+  const first = new ReactiveValue(runtime, 'first', 10);
+  const second = new ReactiveValue(runtime, 'second', 20);
+
+  let computeCount = 0;
+
+  const computed = new ReactiveComputed(runtime, 'computed', () => {
+    computeCount++;
+
+    return condition.value ? first.value : second.value;
+  });
+
+  // Establish the initial dependency graph.
+  computed.value;
+
+  // Switch from `first` to `second`.
+  condition.value = false;
+  computed.value;
+
+  const countAfterSwitch = computeCount;
+
+  // Changing the removed producer must no longer invalidate the computed.
+  first.value = 100;
+
+  assert(computeCount === countAfterSwitch, 'removed producer should not trigger the computed');
+
+  // Changing the current producer should still invalidate it.
+  second.value = 200;
+  computed.value;
+
+  assert(computeCount === countAfterSwitch + 1, 'current producer should trigger the computed');
+}
+
+/**
+ * Verifies that repeated dynamic dependency switches do not accumulate stale
+ * producer links.
+ */
+function testDynamicDependencySwitchDoesNotAccumulateLinks(): void {
+  const runtime = new ReactiveRuntime();
+
+  const condition = new ReactiveValue(runtime, 'condition', true);
+  const first = new ReactiveValue(runtime, 'first', 10);
+  const second = new ReactiveValue(runtime, 'second', 20);
+
+  const computed = new ReactiveComputed(runtime, 'computed', () =>
+    condition.value ? first.value : second.value,
+  );
+
+  // Switch between branches several times.
+  computed.value;
+
+  condition.value = false;
+  computed.value;
+
+  condition.value = true;
+  computed.value;
+
+  condition.value = false;
+  computed.value;
+
+  // Only the currently active branch and the condition should remain.
+  assert(
+    computed.node.producerCount === 2,
+    'dynamic dependency switching should not accumulate stale links',
+  );
+
+  assert(computed.node.hasProducer(condition.node), 'condition should remain a producer');
+
+  assert(
+    computed.node.hasProducer(second.node),
+    'current dynamic producer should remain connected',
+  );
+
+  assert(
+    !computed.node.hasProducer(first.node),
+    'inactive dynamic producer should not remain connected',
+  );
+}
+
+testComputedRemovesDynamicDependency();
+testRemovedDynamicDependencyStopsInvalidation();
+testDynamicDependencySwitchDoesNotAccumulateLinks();

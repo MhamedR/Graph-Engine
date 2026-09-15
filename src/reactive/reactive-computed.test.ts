@@ -1,8 +1,7 @@
-import {ReactiveRuntime} from './reactive-runtime.js';
-import {ReactiveValue} from './reactive-value.js';
 import {ReactiveComputed} from './reactive-computed.js';
 import {assert} from '../test/assert.js';
 import {ReactiveNode} from './reactive-node.js';
+import {ReactiveRuntime, ReactiveValue} from './index.js';
 
 /**
  * Creates a fresh runtime and verifies a basic computed dependency.
@@ -1300,6 +1299,412 @@ function testChangedResultIncrementsVersion(): void {
   );
 }
 
+/**
+ * Verifies that assigning the same value does not invalidate the node.
+ */
+function testSameValueDoesNotInvalidate(): void {
+  const runtime = new ReactiveRuntime();
+  const value = new ReactiveValue(runtime, 'source', 10);
+
+  // Capture the current version before assigning the same value.
+  const versionBefore = value.node.version;
+
+  // Assigning an equivalent value should not mark the node as changed.
+  value.value = 10;
+
+  // The version must remain unchanged because no reactive change occurred.
+  assert(
+    value.node.version === versionBefore,
+    'assigning the same value should not invalidate the reactive node',
+  );
+}
+
+/**
+ * Verifies that assigning the same source value does not cause a computed
+ * value to recompute.
+ */
+function testSameValueDoesNotRecomputeComputed(): void {
+  const runtime = new ReactiveRuntime();
+  const source = new ReactiveValue(runtime, 'source', 10);
+
+  let computeCount = 0;
+
+  const computed = new ReactiveComputed(runtime, 'doubled', () => {
+    // Count every actual computation so we can verify invalidation behavior.
+    computeCount++;
+
+    return source.value * 2;
+  });
+
+  // First read performs the initial lazy computation.
+  assert(computed.value === 20, 'computed value should initially be 20');
+
+  assert(computeCount === 1, 'computed should run once during the initial read');
+
+  // Assigning the same source value must not invalidate the computed node.
+  source.value = 10;
+
+  // Reading again should reuse the cached result.
+  assert(computed.value === 20, 'computed value should remain 20');
+
+  assert(computeCount === 1, 'computed should not recompute when the source value is unchanged');
+}
+
+/**
+ * Verifies that changing the source value causes the computed value to
+ * recompute exactly once.
+ */
+function testDifferentValueRecomputesComputed(): void {
+  const runtime = new ReactiveRuntime();
+  const source = new ReactiveValue(runtime, 'source', 10);
+
+  let computeCount = 0;
+
+  const computed = new ReactiveComputed(runtime, 'doubled', () => {
+    // Count actual computations so invalidation can be observed directly.
+    computeCount++;
+
+    return source.value * 2;
+  });
+
+  // Perform the initial lazy computation.
+  assert(computed.value === 20, 'computed value should initially be 20');
+
+  assert(computeCount === 1, 'computed should initially run once');
+
+  // A genuinely different value must invalidate the computed node.
+  source.value = 20;
+
+  // The next read should recompute using the new source value.
+  assert(computed.value === 40, 'computed value should update after the source changes');
+
+  assert(computeCount === 2, 'computed should recompute exactly once after the source changes');
+}
+
+/**
+ * Verifies that ReactiveValue can use a custom equality function to decide
+ * whether an update should invalidate the reactive graph.
+ */
+function testCustomEquality(): void {
+  const runtime = new ReactiveRuntime();
+
+  const value = new ReactiveValue(
+    runtime,
+    'source',
+    {count: 1},
+    (previous, next) => previous.count === next.count,
+  );
+
+  const versionBefore = value.node.version;
+
+  // These are different object references but equivalent according to the
+  // custom equality function.
+  value.value = {count: 1};
+
+  assert(
+    value.node.version === versionBefore,
+    'custom equality should prevent invalidation for equivalent values',
+  );
+
+  // This object differs according to the custom equality function.
+  value.value = {count: 2};
+
+  assert(
+    value.node.version > versionBefore,
+    'custom equality should allow invalidation for different values',
+  );
+}
+
+/**
+ * Verifies that an error thrown by the equality function does not replace
+ * the currently stored value.
+ */
+function testEqualityErrorPreservesValue(): void {
+  const runtime = new ReactiveRuntime();
+
+  const value = new ReactiveValue(runtime, 'source', 10, () => {
+    // Simulate an equality implementation failure.
+    throw new Error('equality failure');
+  });
+
+  let threw = false;
+
+  try {
+    // The equality check happens before the stored value is replaced.
+    value.value = 20;
+  } catch (error) {
+    threw = true;
+
+    assert(
+      error instanceof Error && error.message === 'equality failure',
+      'equality errors should be propagated to the caller',
+    );
+  }
+
+  assert(threw, 'assigning a value should propagate equality errors');
+
+  assert(value.value === 10, 'the previous value should remain after an equality error');
+}
+
+/**
+ * Verifies that a custom equality function can suppress downstream
+ * invalidation when a computed result is structurally equivalent.
+ */
+function testComputedCustomEquality(): void {
+  const runtime = new ReactiveRuntime();
+
+  const source = new ReactiveValue(runtime, 'source', 1);
+
+  let computeCount = 0;
+
+  const computed = new ReactiveComputed(
+    runtime,
+    'computed',
+    () => {
+      computeCount++;
+
+      return {
+        value: source.value % 2,
+      };
+    },
+    (previous, next) => previous.value === next.value,
+  );
+
+  // First read initializes the computed value.
+  computed.value;
+
+  assert(computeCount === 1, 'computed should evaluate once during initialization');
+
+  // This changes the source and therefore invalidates the computed, but the
+  // computed result remains `{value: 1}`.
+  source.value = 3;
+
+  computed.value;
+
+  assert(computeCount === 2, 'computed should reevaluate after its producer changes');
+
+  assert(computed.value.value === 1, 'computed should produce the expected result');
+}
+
+/**
+ * Verifies that an equal computed result does not increment the computed
+ * node version.
+ */
+function testComputedEqualityPreventsVersionChange(): void {
+  const runtime = new ReactiveRuntime();
+
+  const source = new ReactiveValue(runtime, 'source', 1);
+
+  const computed = new ReactiveComputed(
+    runtime,
+    'computed',
+    () => ({
+      value: source.value % 2,
+    }),
+    (previous, next) => previous.value === next.value,
+  );
+
+  // Initialize the computed value.
+  computed.value;
+
+  const initialVersion = computed.node.version;
+
+  // Force a recomputation whose result is structurally equal.
+  source.value = 3;
+  computed.value;
+
+  assert(
+    computed.node.version === initialVersion,
+    'computed version should not change when the result is equal',
+  );
+}
+
+/**
+ * Verifies that a genuinely different computed result still propagates
+ * normally when a custom equality function is used.
+ */
+function testComputedCustomEqualityDetectsRealChange(): void {
+  const runtime = new ReactiveRuntime();
+
+  const source = new ReactiveValue(runtime, 'source', 1);
+
+  const computed = new ReactiveComputed(
+    runtime,
+    'computed',
+    () => ({
+      value: source.value % 2,
+    }),
+    (previous, next) => previous.value === next.value,
+  );
+
+  // Initialize the computed value.
+  computed.value;
+
+  const initialVersion = computed.node.version;
+
+  // 1 % 2 === 1, while 2 % 2 === 0.
+  source.value = 2;
+  computed.value;
+
+  assert(
+    computed.node.version > initialVersion,
+    'computed version should change when the result is different',
+  );
+
+  assert(computed.value.value === 0, 'computed should expose the changed result');
+}
+
+/**
+ * Verifies that the default computed equality behavior uses Object.is.
+ *
+ * Two separately created objects with identical contents are not equal under
+ * Object.is, so the computed should treat the new object as a real change.
+ */
+function testComputedDefaultEquality(): void {
+  const runtime = new ReactiveRuntime();
+
+  const source = new ReactiveValue(runtime, 'source', 1);
+
+  const computed = new ReactiveComputed(runtime, 'computed', () => ({
+    value: source.value,
+  }));
+
+  // Initialize the computed value.
+  computed.value;
+
+  const initialVersion = computed.node.version;
+
+  // Change the producer so the computed is actually invalidated.
+  //
+  // The computed will produce:
+  //
+  // {value: 1} -> {value: 2}
+  source.value = 2;
+
+  computed.value;
+
+  assert(
+    computed.node.version > initialVersion,
+    'default computed equality should detect a changed object',
+  );
+}
+
+/**
+ * Verifies that a computation error propagates to the caller.
+ */
+function testComputedErrorPropagates(): void {
+  const runtime = new ReactiveRuntime();
+
+  const source = new ReactiveValue(runtime, 'source', 1);
+
+  const computed = new ReactiveComputed(runtime, 'computed', () => {
+    if (source.value === 2) {
+      throw new Error('computed failure');
+    }
+
+    return source.value;
+  });
+
+  // Establish the initial cached value and dependency graph.
+  assert(computed.value === 1, 'computed should produce its initial value');
+
+  source.value = 2;
+
+  let threw = false;
+
+  try {
+    computed.value;
+  } catch (error) {
+    threw = error instanceof Error && error.message === 'computed failure';
+  }
+
+  assert(threw, 'computed errors should propagate to the caller');
+}
+
+/**
+ * Verifies that a failed recomputation does not replace the previously
+ * cached value.
+ */
+function testComputedErrorPreservesPreviousValue(): void {
+  const runtime = new ReactiveRuntime();
+
+  const source = new ReactiveValue(runtime, 'source', 1);
+
+  const computed = new ReactiveComputed(runtime, 'computed', () => {
+    if (source.value === 2) {
+      throw new Error('computed failure');
+    }
+
+    return source.value;
+  });
+
+  // Establish the initial cached value.
+  assert(computed.value === 1, 'computed should produce its initial value');
+
+  source.value = 2;
+
+  try {
+    computed.value;
+  } catch {
+    // The error is expected for this test.
+  }
+
+  // The failed computation must not overwrite the previous cached value.
+  assert(
+    computed.isValid() === false,
+    'computed should remain invalid after a failed recomputation',
+  );
+}
+
+/**
+ * Verifies that the computed can recover after a failed recomputation.
+ */
+function testComputedRecoversAfterError(): void {
+  const runtime = new ReactiveRuntime();
+
+  const source = new ReactiveValue(runtime, 'source', 1);
+
+  const computed = new ReactiveComputed(runtime, 'computed', () => {
+    if (source.value === 2) {
+      throw new Error('computed failure');
+    }
+
+    return source.value;
+  });
+
+  // Establish the initial cached value.
+  assert(computed.value === 1, 'computed should produce its initial value');
+
+  // First force a failed computation.
+  source.value = 2;
+
+  try {
+    computed.value;
+  } catch {
+    // The error is expected.
+  }
+
+  // Restore a valid producer value.
+  source.value = 3;
+
+  assert(computed.value === 3, 'computed should recover after a failed recomputation');
+
+  assert(computed.isValid(), 'computed should be valid after successful recovery');
+}
+
+testComputedCustomEquality();
+testEqualityErrorPreservesValue();
+testCustomEquality();
+testDifferentValueRecomputesComputed();
+testSameValueDoesNotRecomputeComputed();
+testSameValueDoesNotInvalidate();
+testComputedCustomEquality();
+testComputedEqualityPreventsVersionChange();
+testComputedCustomEqualityDetectsRealChange();
+testComputedDefaultEquality();
+testComputedErrorPropagates();
+testComputedErrorPreservesPreviousValue();
+testComputedRecoversAfterError();
 /*
  * Run the reactive computed test suite.
  *

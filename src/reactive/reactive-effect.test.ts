@@ -2156,6 +2156,273 @@ function testFailedBatchClearsDeferredWork(): void {
   assert(!runtime.isBatching, 'failed batch should leave the runtime outside batching mode');
 }
 
+/**
+ * Verifies that an effect error propagates to the caller.
+ */
+function testEffectErrorPropagates(): void {
+  const runtime = new ReactiveRuntime();
+
+  let shouldThrow = true;
+
+  const effect = new ReactiveEffect(runtime, 'effect', () => {
+    if (shouldThrow) {
+      throw new Error('effect failure');
+    }
+  });
+
+  let threw = false;
+
+  try {
+    effect.run();
+  } catch (error) {
+    threw = error instanceof Error && error.message === 'effect failure';
+  }
+
+  assert(threw, 'effect errors should propagate to the caller');
+}
+
+/**
+ * Verifies that an effect can recover and run successfully after a failed
+ * execution.
+ */
+function testEffectRecoversAfterError(): void {
+  const runtime = new ReactiveRuntime();
+
+  let shouldThrow = true;
+  let runs = 0;
+
+  const effect = new ReactiveEffect(runtime, 'effect', () => {
+    runs++;
+
+    if (shouldThrow) {
+      throw new Error('effect failure');
+    }
+  });
+
+  // The first execution is expected to fail.
+  try {
+    effect.run();
+  } catch {
+    // The error is expected for this test.
+  }
+
+  assert(runs === 1, 'effect should have attempted its first execution');
+
+  // Allow the effect to execute successfully.
+  shouldThrow = false;
+
+  effect.run();
+
+  assert(runs === 2, 'effect should recover after a failed execution');
+}
+
+/**
+ * Verifies that dependency tracking remains functional after an effect
+ * throws during execution.
+ */
+function testEffectDependencyTrackingAfterError(): void {
+  const runtime = new ReactiveRuntime();
+
+  const source = new ReactiveValue(runtime, 'source', 1);
+
+  let shouldThrow = true;
+  let runs = 0;
+
+  const effect = new ReactiveEffect(runtime, 'effect', () => {
+    // Reading the source establishes the dependency even when the effect
+    // subsequently throws.
+    source.value;
+
+    runs++;
+
+    if (shouldThrow) {
+      throw new Error('effect failure');
+    }
+  });
+
+  // Initial execution establishes the dependency but throws.
+  try {
+    effect.run();
+  } catch {
+    // The error is expected.
+  }
+
+  assert(
+    effect.node.hasProducer(source.node),
+    'effect should retain its source dependency after an error',
+  );
+
+  // Allow future executions to succeed.
+  shouldThrow = false;
+
+  source.value = 2;
+
+  runtime.flush();
+
+  assert(runs === 2, 'effect should rerun after its dependency changes');
+}
+
+/**
+ * Verifies that dynamic effect dependencies continue to work after a
+ * failed execution.
+ */
+function testEffectDynamicDependenciesAfterError(): void {
+  const runtime = new ReactiveRuntime();
+
+  const first = new ReactiveValue(runtime, 'first', 1);
+  const second = new ReactiveValue(runtime, 'second', 2);
+
+  let useFirst = true;
+  let shouldThrow = true;
+  let runs = 0;
+
+  const effect = new ReactiveEffect(runtime, 'effect', () => {
+    // Select the dependency dynamically for this execution.
+    if (useFirst) {
+      first.value;
+    } else {
+      second.value;
+    }
+
+    runs++;
+
+    // The first execution intentionally fails.
+    if (shouldThrow) {
+      throw new Error('effect failure');
+    }
+  });
+
+  // The initial execution tracks `first` before throwing.
+  try {
+    effect.run();
+  } catch {
+    // The error is expected.
+  }
+
+  assert(
+    effect.node.hasProducer(first.node),
+    'effect should track the first dependency after an error',
+  );
+
+  // Switch to the second dependency and allow the next execution to succeed.
+  useFirst = false;
+  shouldThrow = false;
+
+  effect.run();
+
+  assert(
+    effect.node.hasProducer(second.node),
+    'effect should track the second dependency after recovery',
+  );
+
+  assert(
+    !effect.node.hasProducer(first.node),
+    'effect should remove the old dynamic dependency after recovery',
+  );
+
+  const runsAfterRecovery = runs;
+
+  // Changing the old dependency must no longer rerun the effect.
+  first.value = 10;
+  runtime.flush();
+
+  assert(runs === runsAfterRecovery, 'removed dependency should no longer trigger the effect');
+
+  // Changing the current dependency must rerun the effect.
+  second.value = 20;
+  runtime.flush();
+
+  assert(runs === runsAfterRecovery + 1, 'current dynamic dependency should trigger the effect');
+}
+
+/**
+ * Verifies that destroying an effect prevents future manual execution.
+ */
+function testDestroyedEffectCannotRun(): void {
+  const runtime = new ReactiveRuntime();
+
+  let runs = 0;
+
+  const effect = new ReactiveEffect(runtime, 'effect', () => {
+    runs++;
+  });
+
+  // Establish the initial execution.
+  effect.run();
+
+  assert(runs === 1, 'effect should run before destruction');
+
+  effect.destroy();
+
+  // A destroyed effect should ignore future manual runs.
+  effect.run();
+
+  assert(runs === 1, 'destroyed effect should not run again');
+
+  assert(effect.destroyed, 'effect should report itself as destroyed');
+}
+
+/**
+ * Verifies that destroying an effect removes its dependency relationships
+ * and prevents future source changes from scheduling it.
+ */
+function testDestroyedEffectStopsReacting(): void {
+  const runtime = new ReactiveRuntime();
+
+  const source = new ReactiveValue(runtime, 'source', 1);
+
+  let runs = 0;
+
+  const effect = new ReactiveEffect(runtime, 'effect', () => {
+    // Establish the dependency.
+    source.value;
+    runs++;
+  });
+
+  effect.run();
+
+  assert(runs === 1, 'effect should run once initially');
+
+  assert(effect.node.hasProducer(source.node), 'effect should initially depend on the source');
+
+  effect.destroy();
+
+  assert(effect.node.isIsolated(), 'destroyed effect should be isolated from the graph');
+
+  source.value = 2;
+
+  runtime.flush();
+
+  assert(runs === 1, 'destroyed effect should not react to future source changes');
+
+  assert(
+    !effect.node.hasProducer(source.node),
+    'destroyed effect should no longer have the source as a producer',
+  );
+}
+
+/**
+ * Verifies that destroying an effect is idempotent.
+ */
+function testEffectDestroyIsIdempotent(): void {
+  const runtime = new ReactiveRuntime();
+
+  let runs = 0;
+
+  const effect = new ReactiveEffect(runtime, 'effect', () => {
+    runs++;
+  });
+
+  effect.run();
+
+  effect.destroy();
+  effect.destroy();
+
+  assert(runs === 1, 'destroying an effect repeatedly should not execute it');
+
+  assert(effect.destroyed, 'effect should remain destroyed after repeated destruction');
+}
+
 // Run the effect test suite.
 testEffectExecution();
 testEffectInvalidation();
@@ -2205,3 +2472,10 @@ testCompleteRuntimeLifecycle();
 testBatchedEffectScheduling();
 testNestedBatchScheduling();
 testFailedBatchClearsDeferredWork();
+testEffectErrorPropagates();
+testEffectRecoversAfterError();
+testEffectDependencyTrackingAfterError();
+testEffectDynamicDependenciesAfterError();
+testDestroyedEffectCannotRun();
+testDestroyedEffectStopsReacting();
+testEffectDestroyIsIdempotent();

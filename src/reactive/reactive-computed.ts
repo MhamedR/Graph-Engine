@@ -26,17 +26,19 @@ export class ReactiveComputed<T> {
   private _initialized = false;
 
   /**
-   * Creates a computed reactive value.
+   * Creates a lazy computed reactive value.
    *
-   * @param runtime - Runtime responsible for checking reactive changes.
-   * @param id - Unique identifier for this computed node.
-   * @param compute - Function that produces the computed value.
-   * @param producers - Reactive nodes this computation depends on.
+   * @param runtime - Runtime that owns the reactive node.
+   * @param id - Stable identifier for the reactive node.
+   * @param compute - Function used to calculate the current value.
+   * @param equals - Optional equality function used to determine whether a
+   * computed result actually changed.
    */
   constructor(
     private readonly runtime: ReactiveRuntime,
     id: string,
     private readonly compute: () => T,
+    private readonly equals: (previous: T, next: T) => boolean = Object.is,
   ) {
     // Create the reactive node representing this computed value.
     this.node = new ReactiveNode(id);
@@ -102,7 +104,10 @@ export class ReactiveComputed<T> {
     this.node.synchronizeDependencies();
 
     // Determine whether the computed result actually changed.
-    const valueChanged = !this._initialized || !Object.is(this._value, nextValue);
+    //
+    // The custom equality function allows callers to decide when two computed
+    // results should be considered equivalent.
+    const valueChanged = !this._initialized || !this.equals(this._value, nextValue);
 
     // Store the newly computed result.
     this._value = nextValue;

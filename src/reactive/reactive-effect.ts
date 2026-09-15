@@ -185,21 +185,24 @@ export class ReactiveEffect {
    * executions rebuild those dependencies so dynamic dependency tracking
    * remains correct.
    *
-   * @throws {Error} If the effect attempts to execute itself recursively.
+   * Dependencies are synchronized even when the effect throws so that
+   * dependency tracking remains consistent after failed executions.
+   *
+   * @throws {Error} If the effect attempts to execute itself recursively or
+   * if the effect function itself throws.
    */
   run(): void {
     // A destroyed effect is no longer allowed to execute.
     if (this._destroyed) {
       return;
     }
+
     // Prevent recursive execution of the same effect.
     if (this.node.computing) {
       throw new Error(`Reactive effect "${this.node.id}" cannot run itself recursively.`);
     }
 
     // The explicit run supersedes any previously scheduled execution.
-    // The queued scheduler task may still exist, but it will become a no-op
-    // because the effect is clean after this run.
     this._scheduled = false;
 
     // Remember the consumer that was active before this effect started.
@@ -227,10 +230,13 @@ export class ReactiveEffect {
       } else {
         this.runtime.context.clearActiveConsumer();
       }
-    }
 
-    // Reconcile dependencies with the producers observed during execution.
-    this.node.synchronizeDependencies();
+      // Synchronize dependencies even when the effect throws.
+      //
+      // This preserves the dependency graph observed before the failure
+      // propagated to the caller.
+      this.node.synchronizeDependencies();
+    }
 
     // The effect has now established its current dependency state.
     this._initialized = true;

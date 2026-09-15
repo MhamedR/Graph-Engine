@@ -280,6 +280,94 @@ function testFlushOne(): void {
   assert(!scheduler.hasPendingWork, 'scheduler should be empty after all tasks are executed');
 }
 
+/**
+ * Verifies that a scheduler error propagates to the caller.
+ */
+function testSchedulerErrorPropagates(): void {
+  const scheduler = new ReactiveScheduler();
+
+  let threw = false;
+
+  scheduler.schedule(() => {
+    throw new Error('scheduler failure');
+  });
+
+  try {
+    scheduler.flush();
+  } catch (error) {
+    threw = error instanceof Error && error.message === 'scheduler failure';
+  }
+
+  assert(threw, 'scheduler errors should propagate to the caller');
+}
+
+/**
+ * Verifies that one failed scheduler task does not prevent later tasks from
+ * executing.
+ */
+function testSchedulerContinuesAfterError(): void {
+  const scheduler = new ReactiveScheduler();
+
+  let firstTaskRan = false;
+  let secondTaskRan = false;
+  let thirdTaskRan = false;
+
+  scheduler.schedule(() => {
+    firstTaskRan = true;
+    throw new Error('first failure');
+  });
+
+  scheduler.schedule(() => {
+    secondTaskRan = true;
+  });
+
+  scheduler.schedule(() => {
+    thirdTaskRan = true;
+  });
+
+  try {
+    scheduler.flush();
+  } catch {
+    // The first error is expected.
+  }
+
+  assert(firstTaskRan, 'the failing scheduler task should execute');
+
+  assert(secondTaskRan, 'scheduler should continue after the first task fails');
+
+  assert(thirdTaskRan, 'scheduler should execute all remaining tasks after an error');
+}
+
+/**
+ * Verifies that scheduler tasks added while a flush is running are deferred
+ * to the next flush cycle.
+ */
+function testSchedulerDefersTasksScheduledDuringFlush(): void {
+  const scheduler = new ReactiveScheduler();
+
+  let firstRuns = 0;
+  let deferredRuns = 0;
+
+  scheduler.schedule(() => {
+    firstRuns++;
+
+    // This task is scheduled while the current flush is already running.
+    scheduler.schedule(() => {
+      deferredRuns++;
+    });
+  });
+
+  scheduler.flush();
+
+  assert(firstRuns === 1, 'initial scheduler task should run during the first flush');
+
+  assert(deferredRuns === 0, 'tasks scheduled during a flush should be deferred');
+
+  scheduler.flush();
+
+  assert(deferredRuns === 1, 'deferred task should run during the next flush');
+}
+
 // Run the scheduler test suite.
 testSchedulerStartsEmpty();
 testScheduling();
@@ -289,3 +377,6 @@ testFlushContinuesAfterError();
 testRecursiveFlushIsRejected();
 testClear();
 testFlushOne();
+testSchedulerErrorPropagates();
+testSchedulerContinuesAfterError();
+testSchedulerDefersTasksScheduledDuringFlush();

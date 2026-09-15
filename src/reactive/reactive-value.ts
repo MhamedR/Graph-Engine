@@ -18,16 +18,19 @@ export class ReactiveValue<T> {
    */
   public readonly node: ReactiveNode;
   /**
-   * Creates a reactive value.
+   * Creates a writable reactive value.
    *
-   * @param runtime - Runtime responsible for coordinating reactive changes.
-   * @param id - Unique identifier for the underlying reactive node.
-   * @param initialValue - Initial value stored by this reactive value.
+   * @param runtime - Runtime that owns the reactive node.
+   * @param id - Stable identifier for the reactive node.
+   * @param initialValue - Initial stored value.
+   * @param equals - Optional equality function used to decide whether an
+   * update represents a real change.
    */
   constructor(
     private readonly runtime: ReactiveRuntime,
     id: string,
     initialValue: T,
+    private readonly equals: (previous: T, next: T) => boolean = Object.is,
   ) {
     this.node = new ReactiveNode(id);
 
@@ -62,15 +65,21 @@ export class ReactiveValue<T> {
   }
 
   /**
-   * Updates the stored value and notifies the reactive runtime.
+   * Updates the stored value and notifies the reactive graph when the value
+   * actually changed.
    *
-   * @param value - The new value to store.
+   * `Object.is` matches the equality semantics commonly used by reactive
+   * systems and correctly handles edge cases such as `NaN` and `-0`.
+   *
+   * @param value - New value to store.
    */
   set value(value: T) {
-    // Store the new value.
-    this._value = value;
+    // Avoid invalidating the graph when the value did not actually change.
+    if (this.equals(this._value, value)) {
+      return;
+    }
 
-    // Tell the runtime that this reactive value changed.
+    this._value = value;
     this.runtime.markChanged(this.node);
   }
 }

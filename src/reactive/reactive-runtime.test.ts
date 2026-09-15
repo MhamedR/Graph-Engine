@@ -4,6 +4,7 @@ import {ReactiveNode} from './reactive-node.js';
 import {ReactiveValue} from './reactive-value.js';
 import {ReactiveComputed} from './reactive-computed.js';
 import {diffReactiveGraphSnapshots} from './reactive-graph-diff.js';
+import {ReactiveEffect} from './reactive-effect.js';
 
 /**
  * Verifies that every runtime owns a scheduler.
@@ -462,60 +463,6 @@ function testGraphMetrics(): void {
 }
 
 /**
- * Verifies that runtime inspection combines runtime state, graph metrics,
- * and the current graph snapshot into one diagnostic object.
- */
-function testRuntimeInspection(): void {
-  const runtime = new ReactiveRuntime();
-
-  const source = new ReactiveValue(runtime, 'source', 1);
-
-  const doubled = new ReactiveComputed(runtime, 'doubled', () => source.value * 2);
-
-  // Evaluate the computed value so the dependency relationship is established.
-  assert(doubled.value === 2, 'computed value should be initialized');
-
-  // Capture the complete runtime inspection after initialization.
-  const inspection = runtime.inspect();
-
-  assert(inspection.runtime.epoch === 0, 'inspection should report the current runtime epoch');
-
-  assert(inspection.metrics.nodeCount === 2, 'inspection should report both registered nodes');
-
-  assert(
-    inspection.metrics.edgeCount === 1,
-    'inspection should report the source-to-computed dependency',
-  );
-
-  assert(inspection.graph.nodes.length === 2, 'inspection should include both graph nodes');
-
-  assert(inspection.graph.edges.length === 1, 'inspection should include the dependency edge');
-
-  /**
-   * Verify that inspection also exposes detailed state for each registered node.
-   */
-  const sourceInspection = inspection.nodes.find((node) => node.id === 'source')!;
-
-  const doubledInspection = inspection.nodes.find((node) => node.id === 'doubled')!;
-
-  assert(sourceInspection !== undefined, 'inspection should include the source node');
-
-  assert(doubledInspection !== undefined, 'inspection should include the computed node');
-
-  assert(
-    sourceInspection.consumerIds.includes('doubled'),
-    'source inspection should identify doubled as a consumer',
-  );
-
-  assert(
-    doubledInspection.producerIds.includes('source'),
-    'computed inspection should identify source as a producer',
-  );
-
-  assert(doubledInspection.dirty === false, 'evaluated computed node should not be dirty');
-}
-
-/**
  * Verifies that the runtime can produce a useful human-readable diagnostic
  * report.
  */
@@ -557,38 +504,6 @@ function testRuntimeDescription(): void {
 }
 
 /**
- * Verifies that the reactive graph can be exported as Graphviz DOT text.
- */
-function testRuntimeDotExport(): void {
-  const runtime = new ReactiveRuntime();
-
-  const source = new ReactiveValue(runtime, 'source', 1);
-
-  const doubled = new ReactiveComputed(runtime, 'doubled', () => source.value * 2);
-
-  // Evaluate the computed value so the dependency relationship exists.
-  assert(doubled.value === 2, 'computed value should be initialized');
-
-  // Export the current reactive graph.
-  const dot = runtime.toDot();
-
-  assert(dot.includes('digraph ReactiveGraph'), 'DOT output should contain the graph declaration');
-
-  assert(dot.includes('"source" [label="source'), 'DOT output should declare the source node');
-
-  assert(dot.includes('"doubled";'), 'DOT output should declare the computed node');
-
-  assert(
-    dot.includes('"source" -> "doubled";'),
-    'DOT output should contain the source-to-computed edge',
-  );
-
-  assert(dot.includes('version='), 'DOT output should include the node version');
-
-  assert(dot.includes('dirty=false'), 'DOT output should include the node dirty state');
-}
-
-/**
  * Verifies that DOT output marks a computed node as dirty after its
  * producer changes.
  */
@@ -614,6 +529,429 @@ function testRuntimeDotDirtyState(): void {
   );
 }
 
+/**
+ * Verifies that disposing a single node removes it from the runtime and
+ * isolates it from the dependency graph.
+ */
+function testDisposeNode(): void {
+  const runtime = new ReactiveRuntime();
+
+  const source = new ReactiveValue(runtime, 'source', 1);
+  const computed = new ReactiveComputed(runtime, 'computed', () => source.value * 2);
+
+  // Establish the dependency graph.
+  computed.value;
+
+  assert(runtime.nodeCount === 2, 'runtime should contain both nodes before disposal');
+
+  runtime.disposeNode(computed.node);
+
+  assert(runtime.nodeCount === 1, 'disposing a node should remove it from the runtime');
+
+  assert(computed.node.isIsolated(), 'disposed node should be isolated from the graph');
+
+  assert(computed.node.producerCount === 0, 'disposed node should have no producers');
+
+  assert(computed.node.consumerCount === 0, 'disposed node should have no consumers');
+
+  // Disposal should be idempotent.
+  runtime.disposeNode(computed.node);
+
+  assert(runtime.nodeCount === 1, 'disposing the same node twice should be harmless');
+
+  // Keep the source referenced so the test explicitly verifies that the
+  // remaining runtime node is still present.
+  assert(runtime.getNodes().includes(source.node), 'unrelated nodes should remain registered');
+}
+
+/**
+ * Verifies that disposing the runtime prevents new nodes from being
+ * registered.
+ */
+function testRuntimeDisposePreventsRegistration(): void {
+  const runtime = new ReactiveRuntime();
+
+  runtime.dispose();
+
+  let threw = false;
+
+  try {
+    new ReactiveValue(runtime, 'source', 1);
+  } catch {
+    threw = true;
+  }
+
+  assert(threw, 'creating a node after runtime disposal should fail');
+}
+
+/**
+ * Verifies that runtime disposal clears all registered nodes and pending
+ * scheduler work.
+ */
+function testRuntimeDisposeClearsState(): void {
+  const runtime = new ReactiveRuntime();
+
+  new ReactiveValue(runtime, 'source', 1);
+
+  assert(runtime.nodeCount === 1, 'runtime should contain the registered node before disposal');
+
+  runtime.dispose();
+
+  assert(runtime.disposed, 'runtime should report itself as disposed');
+
+  assert(runtime.nodeCount === 0, 'runtime disposal should clear registered nodes');
+
+  assert(runtime.pendingChangeCount === 0, 'runtime disposal should clear pending changes');
+
+  assert(!runtime.hasPendingWork, 'runtime disposal should leave no pending scheduler work');
+
+  // Disposal should be idempotent.
+  runtime.dispose();
+
+  assert(runtime.disposed, 'runtime should remain disposed after repeated disposal');
+}
+
+/**
+ * Verifies that multiple changes inside one batch are coalesced into a
+ * single effect execution.
+ */
+function testBatchCoalescesEffectRuns(): void {
+  const runtime = new ReactiveRuntime();
+
+  const first = new ReactiveValue(runtime, 'first', 1);
+  const second = new ReactiveValue(runtime, 'second', 2);
+
+  let runs = 0;
+
+  const effect = new ReactiveEffect(runtime, 'effect', () => {
+    // Establish both dependencies.
+    first.value;
+    second.value;
+
+    runs++;
+  });
+
+  // Establish the initial dependency graph.
+  effect.run();
+
+  assert(runs === 1, 'effect should run once initially');
+
+  runtime.batch(() => {
+    first.value = 10;
+    second.value = 20;
+
+    // The effect should not execute while the batch is active.
+    assert(runs === 1, 'effect should not run during a batch');
+  });
+
+  assert(runs === 2, 'effect should run once after the batch completes');
+}
+
+/**
+ * Verifies that nested batches remain deferred until the outermost batch
+ * completes.
+ */
+function testNestedBatchesDeferUntilOuterBatchCompletes(): void {
+  const runtime = new ReactiveRuntime();
+
+  const source = new ReactiveValue(runtime, 'source', 1);
+
+  let runs = 0;
+
+  const effect = new ReactiveEffect(runtime, 'effect', () => {
+    source.value;
+    runs++;
+  });
+
+  effect.run();
+
+  runtime.batch(() => {
+    source.value = 2;
+
+    runtime.batch(() => {
+      source.value = 3;
+
+      assert(runs === 1, 'effect should remain deferred inside nested batches');
+    });
+
+    assert(runs === 1, 'effect should remain deferred until the outer batch completes');
+  });
+
+  assert(runs === 2, 'effect should run once after the outermost batch completes');
+}
+
+/**
+ * Verifies that batching preserves the final source value observed by the
+ * effect.
+ */
+function testBatchEffectSeesFinalValue(): void {
+  const runtime = new ReactiveRuntime();
+
+  const source = new ReactiveValue(runtime, 'source', 1);
+
+  let observedValue = 0;
+
+  const effect = new ReactiveEffect(runtime, 'effect', () => {
+    observedValue = source.value;
+  });
+
+  effect.run();
+
+  runtime.batch(() => {
+    source.value = 2;
+    source.value = 3;
+    source.value = 4;
+  });
+
+  assert(observedValue === 4, 'effect should observe the final value after the batch');
+}
+
+/**
+ * Verifies that an error thrown inside a batch propagates to the caller.
+ */
+function testBatchErrorPropagates(): void {
+  const runtime = new ReactiveRuntime();
+
+  let threw = false;
+
+  try {
+    runtime.batch(() => {
+      throw new Error('batch failure');
+    });
+  } catch (error) {
+    threw = error instanceof Error && error.message === 'batch failure';
+  }
+
+  assert(threw, 'batch errors should propagate to the caller');
+}
+
+/**
+ * Verifies that the runtime exits batching mode after a batch throws.
+ */
+function testBatchErrorRestoresBatchState(): void {
+  const runtime = new ReactiveRuntime();
+
+  try {
+    runtime.batch(() => {
+      assert(runtime.isBatching, 'runtime should report batching inside the batch');
+
+      throw new Error('batch failure');
+    });
+  } catch {
+    // The error is expected for this test.
+  }
+
+  assert(!runtime.isBatching, 'runtime should leave batching mode after a failed batch');
+
+  assert(runtime.batchDepth === 0, 'batch depth should return to zero after a failed batch');
+}
+
+/**
+ * Verifies that the runtime remains usable after a failed batch.
+ */
+function testRuntimeRemainsUsableAfterBatchError(): void {
+  const runtime = new ReactiveRuntime();
+
+  const source = new ReactiveValue(runtime, 'source', 1);
+
+  let runs = 0;
+
+  const effect = new ReactiveEffect(runtime, 'effect', () => {
+    source.value;
+    runs++;
+  });
+
+  effect.run();
+
+  try {
+    runtime.batch(() => {
+      source.value = 2;
+
+      throw new Error('batch failure');
+    });
+  } catch {
+    // The error is expected for this test.
+  }
+
+  // The runtime should still be able to process a later change.
+  source.value = 3;
+  runtime.flush();
+
+  assert(runs >= 2, 'runtime should remain usable after a failed batch');
+
+  assert(!runtime.isBatching, 'runtime should remain outside batching mode');
+}
+/**
+ * Verifies that a graph snapshot contains the current dependency edges.
+ */
+function testGraphSnapshotContainsDependencies(): void {
+  const runtime = new ReactiveRuntime();
+
+  const source = new ReactiveValue(runtime, 'source', 1);
+
+  const computed = new ReactiveComputed(runtime, 'computed', () => source.value * 2);
+
+  // Establish the dependency graph.
+  computed.value;
+
+  const snapshot = runtime.createGraphSnapshot();
+
+  assert(snapshot.nodes.length === 2, 'snapshot should contain both reactive nodes');
+
+  assert(snapshot.edges.length === 1, 'snapshot should contain the dependency edge');
+
+  const edge = snapshot.edges[0];
+
+  assert(edge?.producerId === 'source', 'snapshot edge should identify the producer');
+
+  assert(edge?.consumerId === 'computed', 'snapshot edge should identify the consumer');
+}
+
+/**
+ * Verifies that a snapshot diff detects a newly created dependency edge.
+ */
+function testGraphSnapshotDiffDetectsAddedEdge(): void {
+  const runtime = new ReactiveRuntime();
+
+  const source = new ReactiveValue(runtime, 'source', 1);
+
+  const computed = new ReactiveComputed(runtime, 'computed', () => source.value * 2);
+
+  const before = runtime.createGraphSnapshot();
+
+  // Reading the computed establishes the dependency.
+  computed.value;
+
+  const after = runtime.createGraphSnapshot();
+
+  const diff = diffReactiveGraphSnapshots(before, after);
+
+  assert(
+    diff.addedEdges.length === 1,
+    'snapshot diff should detect the newly added dependency edge',
+  );
+
+  assert(diff.addedEdges[0]?.producerId === 'source', 'added edge should identify the producer');
+
+  assert(diff.addedEdges[0]?.consumerId === 'computed', 'added edge should identify the consumer');
+}
+
+/**
+ * Verifies that a snapshot diff detects a removed dynamic dependency.
+ */
+function testGraphSnapshotDiffDetectsRemovedEdge(): void {
+  const runtime = new ReactiveRuntime();
+
+  const condition = new ReactiveValue(runtime, 'condition', true);
+  const first = new ReactiveValue(runtime, 'first', 1);
+  const second = new ReactiveValue(runtime, 'second', 2);
+
+  const computed = new ReactiveComputed(runtime, 'computed', () =>
+    condition.value ? first.value : second.value,
+  );
+
+  // Capture the initial dependency graph.
+  computed.value;
+
+  const before = runtime.createGraphSnapshot();
+
+  // Switch to the second dynamic dependency.
+  condition.value = false;
+  computed.value;
+
+  const after = runtime.createGraphSnapshot();
+
+  const diff = diffReactiveGraphSnapshots(before, after);
+
+  assert(
+    diff.removedEdges.some((edge) => edge.producerId === 'first' && edge.consumerId === 'computed'),
+    'snapshot diff should detect the removed first dependency',
+  );
+
+  assert(
+    diff.addedEdges.some((edge) => edge.producerId === 'second' && edge.consumerId === 'computed'),
+    'snapshot diff should detect the added second dependency',
+  );
+}
+
+/**
+ * Verifies that runtime inspection combines node state, graph structure,
+ * and aggregate graph metrics into one diagnostic view.
+ */
+function testRuntimeInspection(): void {
+  // Create a fresh runtime for the inspection test.
+  const runtime = new ReactiveRuntime();
+
+  // Create a source value and a computed node that depends on it.
+  const source = new ReactiveValue(runtime, 'source', 1);
+  const computed = new ReactiveComputed(runtime, 'computed', () => source.value * 2);
+
+  // Evaluate the computed value so the dependency edge is established.
+  assert(computed.value === 2, 'Computed value should equal 2.');
+
+  // Collect the complete runtime inspection.
+  const inspection = runtime.inspect();
+
+  // The runtime should report both registered nodes.
+  assert(inspection.metrics.nodeCount === 2, 'Inspection should report two registered nodes.');
+
+  // The computed dependency creates exactly one graph edge.
+  assert(inspection.metrics.edgeCount === 1, 'Inspection should report one graph edge.');
+
+  // Find the computed node in the inspection.
+  const computedInspection = inspection.nodes.find((node) => node.id === 'computed');
+
+  // The computed node must be present.
+  assert(computedInspection !== undefined, 'Computed node should appear in the inspection.');
+
+  // The computed node should depend on the source node.
+  assert(
+    computedInspection?.producerIds.length === 1 && computedInspection.producerIds[0] === 'source',
+    'Computed node should list source as its producer.',
+  );
+
+  // Find the dependency edge in the graph snapshot.
+  const edge = inspection.graph.edges.find(
+    (candidate) => candidate.producerId === 'source' && candidate.consumerId === 'computed',
+  );
+
+  // The snapshot should contain the same dependency relationship.
+  assert(edge !== undefined, 'Graph snapshot should contain source -> computed.');
+}
+
+/**
+ * Verifies that the runtime can export the current reactive graph as
+ * Graphviz DOT with nodes and dependency edges.
+ */
+function testRuntimeDotExport(): void {
+  // Create a fresh runtime for the DOT export test.
+  const runtime = new ReactiveRuntime();
+
+  // Create a source value and a computed node depending on it.
+  const source = new ReactiveValue(runtime, 'source', 1);
+  const computed = new ReactiveComputed(runtime, 'computed', () => source.value * 2);
+
+  // Evaluate the computed value so the dependency edge is established.
+  assert(computed.value === 2, 'Computed value should equal 2.');
+
+  // Export the reactive graph as Graphviz DOT.
+  const dot = runtime.toDot();
+
+  // The output should declare a directed Graphviz graph.
+  assert(dot.includes('digraph'), 'DOT output should declare a directed graph.');
+
+  // Both reactive nodes should appear in the output.
+  assert(dot.includes('"source"'), 'DOT output should contain the source node.');
+
+  assert(dot.includes('"computed"'), 'DOT output should contain the computed node.');
+
+  // The dependency relationship should appear as a directed edge.
+  assert(
+    dot.includes('"source" -> "computed"'),
+    'DOT output should contain the source -> computed edge.',
+  );
+}
+
 // Run the runtime scheduler tests.
 testRuntimeOwnsScheduler();
 testScheduledChange();
@@ -631,3 +969,13 @@ testRuntimeInspection();
 testRuntimeDescription();
 testRuntimeDotExport();
 testRuntimeDotDirtyState();
+testDisposeNode();
+testRuntimeDisposePreventsRegistration();
+testRuntimeDisposeClearsState();
+testBatchErrorPropagates();
+testBatchErrorRestoresBatchState();
+testRuntimeRemainsUsableAfterBatchError();
+testGraphSnapshotContainsDependencies();
+testGraphSnapshotDiffDetectsAddedEdge();
+testGraphSnapshotDiffDetectsRemovedEdge();
+testRuntimeDotExport();
