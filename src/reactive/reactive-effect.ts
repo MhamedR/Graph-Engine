@@ -1,6 +1,9 @@
 import {ReactiveRuntime} from './reactive-runtime.js';
 import {ReactiveNode} from './reactive-node.js';
-
+import {
+  ReactiveEffectScheduleHandle,
+  ReactiveEffectScheduler,
+} from './reactive-scheduler-options.js';
 /**
  * Describes the observable lifecycle state of a ReactiveEffect.
  */
@@ -53,12 +56,23 @@ export class ReactiveEffect {
    * A destroyed effect must no longer execute or schedule new work.
    */
   private _destroyed = false;
+  /**
+   * Handle for cancelling the currently scheduled custom-scheduler task.
+   */
+  private _scheduleHandle: ReactiveEffectScheduleHandle | undefined;
+
+  /**
+   * Scheduler responsible for deciding when this effect executes.
+   */
+  private readonly scheduler: ReactiveEffectScheduler;
 
   constructor(
     private readonly runtime: ReactiveRuntime,
     id: string,
     private readonly effect: () => void,
+    scheduler?: ReactiveEffectScheduler,
   ) {
+    this.scheduler = scheduler ?? runtime.scheduler;
     this.node = new ReactiveNode(id);
     // Register the effect's reactive node with the runtime so the effect
     // participates in runtime-level inspection and diagnostics.
@@ -188,6 +202,9 @@ export class ReactiveEffect {
    * Dependencies are synchronized even when the effect throws so that
    * dependency tracking remains consistent after failed executions.
    *
+   * Any pending scheduled execution is cancelled because this explicit run
+   * becomes the authoritative execution.
+   *
    * @throws {Error} If the effect attempts to execute itself recursively or
    * if the effect function itself throws.
    */
@@ -202,7 +219,12 @@ export class ReactiveEffect {
       throw new Error(`Reactive effect "${this.node.id}" cannot run itself recursively.`);
     }
 
-    // The explicit run supersedes any previously scheduled execution.
+    // An explicit run supersedes any previously scheduled execution.
+    //
+    // Cancel the scheduler task itself before clearing the local scheduling
+    // state so the effect cannot execute a second time later.
+    this._scheduleHandle?.cancel();
+    this._scheduleHandle = undefined;
     this._scheduled = false;
 
     // Remember the consumer that was active before this effect started.
@@ -269,41 +291,38 @@ export class ReactiveEffect {
     return this.node.dirty;
   }
   /**
-   * Schedules the effect for later execution.
+   * Schedules the effect for execution.
    *
-   * Repeated calls while the effect is already scheduled are coalesced into
-   * one pending scheduler task.
+   * The configured scheduler decides when the effect actually runs.
+   *
+   * @throws Re-throws an error if the configured scheduler rejects the task.
    */
-  schedule(): void {
-    // Destroyed effects must never create new scheduler work.
-    if (this._destroyed) {
-      return;
-    }
-    // Avoid creating duplicate scheduler work for an already scheduled effect.
-    if (this._scheduled) {
+  public schedule(): void {
+    if (this._destroyed || this._scheduled) {
       return;
     }
 
-    // Remember that this effect now has pending scheduled work.
     this._scheduled = true;
 
-    // Delegate deferred execution to the runtime scheduler.
-    this.runtime.schedule(() => {
-      // Clear the scheduled state before executing so the effect can be
-      // scheduled again from inside its own execution if necessary.
+    try {
+      this._scheduleHandle = this.scheduler.schedule(() => {
+        this._scheduled = false;
+        this._scheduleHandle = undefined;
+
+        if (this._destroyed) {
+          return;
+        }
+
+        if (this.shouldRun()) {
+          this.run();
+        }
+      });
+    } catch (error) {
+      // Restore the scheduling state when the scheduler itself fails.
       this._scheduled = false;
-
-      // Destruction may have happened after this task was queued.
-      // In that case, the stale task must do nothing.
-      if (this._destroyed) {
-        return;
-      }
-
-      // Only execute when the effect actually requires execution.
-      if (this.shouldRun()) {
-        this.run();
-      }
-    });
+      this._scheduleHandle = undefined;
+      throw error;
+    }
   }
   /**
    * Disposes this effect.
@@ -328,27 +347,27 @@ export class ReactiveEffect {
     this.node.clearProducers();
   }
   /**
-   * Permanently destroys this effect.
-   *
-   * Destruction is idempotent. Once destroyed, the effect can no longer
-   * execute, schedule new work, or remain connected to its producers.
+   * Destroys the effect and disconnects it from the reactive graph.
    */
   destroy(): void {
-    // Destruction is idempotent so callers can safely clean up an effect more
-    // than once.
+    // Destruction is intentionally idempotent.
     if (this._destroyed) {
       return;
     }
 
-    // Mark the effect as permanently destroyed.
+    // Mark the effect as destroyed before cancelling work.
     this._destroyed = true;
 
-    // The effect is no longer considered scheduled from the public lifecycle
-    // perspective. Any already-queued scheduler task will become a no-op.
+    // Cancel custom-scheduler work that has not started yet.
+    this._scheduleHandle?.cancel();
+
+    // Forget the completed cancellation handle.
+    this._scheduleHandle = undefined;
+
+    // Clear the local scheduling state.
     this._scheduled = false;
 
-    // Remove the effect from the runtime registry and completely isolate its
-    // reactive node from the dependency graph.
+    // Disconnect the effect from the runtime.
     this.runtime.disposeNode(this.node);
   }
 }

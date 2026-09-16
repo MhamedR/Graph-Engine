@@ -1,3 +1,8 @@
+import {
+  ReactiveEffectScheduleHandle,
+  ReactiveEffectScheduler,
+} from './reactive-scheduler-options.js';
+
 /**
  * Represents a unit of work that can be scheduled for later execution.
  */
@@ -10,8 +15,9 @@ export type ScheduledTask = () => void;
  * ReactiveRuntime will eventually use this abstraction to coordinate
  * deferred recomputation.
  */
-export class ReactiveScheduler {
+export class ReactiveScheduler implements ReactiveEffectScheduler {
   private readonly queue: ScheduledTask[] = [];
+
   /**
    * Tracks whether the scheduler is currently executing a batch.
    *
@@ -24,11 +30,38 @@ export class ReactiveScheduler {
    * Adds a task to the scheduler queue.
    *
    * @param task - Function that should be executed later.
+   * @returns Handle that can cancel the task while it is still pending.
    */
-  schedule(task: ScheduledTask): void {
+  schedule(task: ScheduledTask): ReactiveEffectScheduleHandle {
     // Store the task until the scheduler is explicitly flushed.
     this.queue.push(task);
+
+    // Track whether this particular task has already been cancelled.
+    let cancelled = false;
+
+    return {
+      /**
+       * Cancels this scheduled task if it is still waiting in the queue.
+       */
+      cancel: (): void => {
+        // Cancellation is intentionally idempotent.
+        if (cancelled) {
+          return;
+        }
+
+        cancelled = true;
+
+        // Locate the task in the pending queue.
+        const index = this.queue.indexOf(task);
+
+        // Remove it only when it has not already entered a flush batch.
+        if (index !== -1) {
+          this.queue.splice(index, 1);
+        }
+      },
+    };
   }
+
   /**
    * Removes all currently pending tasks without executing them.
    *
@@ -48,6 +81,7 @@ export class ReactiveScheduler {
   get hasPendingWork(): boolean {
     return this.queue.length > 0;
   }
+
   /**
    * Returns whether the scheduler is currently executing a batch.
    *
@@ -125,6 +159,7 @@ export class ReactiveScheduler {
       throw firstError;
     }
   }
+
   /**
    * Executes the next pending task.
    *

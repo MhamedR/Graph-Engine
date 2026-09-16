@@ -1692,6 +1692,169 @@ function testComputedRecoversAfterError(): void {
   assert(computed.isValid(), 'computed should be valid after successful recovery');
 }
 
+/**
+ * Verifies that a disposed reactive value can no longer be mutated.
+ */
+function testDisposedReactiveValueCannotBeWritten(): void {
+  // Create a fresh runtime for the disposal-state test.
+  const runtime = new ReactiveRuntime();
+
+  // Create a writable reactive value.
+  const source = new ReactiveValue(runtime, 'source', 1);
+
+  // Dispose the value before attempting another write.
+  source.dispose();
+
+  // The public lifecycle state should reflect the disposal.
+  assert(source.disposed, 'Reactive value should report itself as disposed.');
+
+  // Attempting to write after disposal should fail explicitly.
+  let errorMessage = '';
+
+  try {
+    // A disposed reactive value must not re-enter the reactive graph.
+    source.value = 2;
+  } catch (error) {
+    // Capture the lifecycle error for verification.
+    errorMessage = error instanceof Error ? error.message : String(error);
+  }
+
+  // The write must be rejected.
+  assert(errorMessage.length > 0, 'Writing to a disposed reactive value should throw.');
+
+  // Verify that the error identifies the disposed state.
+  assert(
+    errorMessage === 'Reactive value "source" has been disposed.',
+    'Disposed reactive value should report the expected lifecycle error.',
+  );
+}
+
+/**
+ * Verifies that disposing a reactive value disconnects its consumers and
+ * prevents the disposed value from participating in future propagation.
+ */
+function testDisposedReactiveValueCannotBeRevived(): void {
+  // Create a fresh runtime for the lifecycle test.
+  const runtime = new ReactiveRuntime();
+
+  // Create a source value.
+  const source = new ReactiveValue(runtime, 'source', 1);
+
+  // Create a computed value that depends on the source.
+  const computed = new ReactiveComputed(runtime, 'computed', () => source.value * 2);
+
+  // Establish the source -> computed dependency.
+  assert(computed.value === 2, 'Computed should initially evaluate to 2.');
+
+  // Confirm the consumer relationship exists before disposal.
+  assert(source.node.consumerCount === 1, 'Source should have one consumer before disposal.');
+
+  // Dispose the source.
+  source.dispose();
+
+  // The disposed source should no longer have consumers.
+  assert(source.node.consumerCount === 0, 'Disposed source should have no consumers.');
+
+  // The computed should no longer retain the disposed source as a producer.
+  assert(
+    computed.node.producerCount === 0,
+    'Computed should have no producers after source disposal.',
+  );
+
+  // The source should remain permanently disposed.
+  assert(source.disposed, 'Source should remain disposed.');
+}
+
+/**
+ * Verifies that a computed detects when one of its producers has been
+ * disposed and rejects evaluation instead of reading stale reactive state.
+ */
+function testComputedCannotReadDisposedProducer(): void {
+  // Create a fresh runtime for the producer-disposal test.
+  const runtime = new ReactiveRuntime();
+
+  // Create a source value.
+  const source = new ReactiveValue(runtime, 'source', 1);
+
+  // Create a computed value depending on the source.
+  const computed = new ReactiveComputed(runtime, 'computed', () => source.value * 2);
+
+  // Establish the dependency relationship.
+  assert(computed.value === 2, 'Computed should initially evaluate to 2.');
+
+  // Dispose the producer after the dependency has been established.
+  source.dispose();
+
+  // Reading the computed should not silently use the disposed producer.
+  let errorMessage = '';
+
+  try {
+    // Force the computed to evaluate again.
+    void computed.value;
+  } catch (error) {
+    // Capture the lifecycle error for verification.
+    errorMessage = error instanceof Error ? error.message : String(error);
+  }
+
+  // The computed must reject evaluation after its producer is disposed.
+  assert(
+    errorMessage.length > 0,
+    'Computed should reject evaluation after its producer is disposed.',
+  );
+
+  /**
+   * Verifies that the computed receives the precise producer-disposal error.
+   */
+  assert(
+    errorMessage === 'Reactive value "source" has been disposed.',
+    'Computed should report the disposed producer error.',
+  );
+}
+
+/**
+ * Verifies that disposing a reactive value more than once is harmless.
+ */
+function testReactiveValueDisposalIsIdempotent(): void {
+  // Create a fresh runtime for the idempotence test.
+  const runtime = new ReactiveRuntime();
+
+  // Create a writable reactive value.
+  const source = new ReactiveValue(runtime, 'source', 1);
+
+  // Dispose the value once.
+  source.dispose();
+
+  // Disposing the same value again should not throw.
+  source.dispose();
+
+  // The value should remain disposed after repeated disposal.
+  assert(source.disposed, 'Reactive value should remain disposed after repeated disposal.');
+
+  // The runtime should not contain the disposed value.
+  assert(
+    !runtime.getNodes().includes(source.node),
+    'Disposed reactive value should remain absent from the runtime.',
+  );
+}
+
+/**
+ * Verifies that disposing a reactive value does not alter its stored value.
+ */
+function testReactiveValueDisposalPreservesValue(): void {
+  // Create a fresh runtime for the value-preservation test.
+  const runtime = new ReactiveRuntime();
+
+  // Create a writable reactive value.
+  const source = new ReactiveValue(runtime, 'source', 42);
+
+  // Dispose the value.
+  source.dispose();
+
+  // The internal stored value should remain unchanged even though reads
+  // are no longer permitted after disposal.
+  assert(source.node.version === 0, 'Disposing a reactive value should not increment its version.');
+}
+
 testComputedCustomEquality();
 testEqualityErrorPreservesValue();
 testCustomEquality();
@@ -1747,3 +1910,8 @@ testSameResultDoesNotChangeVersion();
 testSameResultDoesNotPropagateValueChange();
 testRepeatedSameResultKeepsVersionStable();
 testChangedResultIncrementsVersion();
+testDisposedReactiveValueCannotBeWritten();
+testDisposedReactiveValueCannotBeRevived();
+testComputedCannotReadDisposedProducer();
+testReactiveValueDisposalIsIdempotent();
+testReactiveValueDisposalPreservesValue();

@@ -544,7 +544,7 @@ function testDisposeNode(): void {
 
   assert(runtime.nodeCount === 2, 'runtime should contain both nodes before disposal');
 
-  runtime.disposeNode(computed.node);
+  computed.dispose();
 
   assert(runtime.nodeCount === 1, 'disposing a node should remove it from the runtime');
 
@@ -555,7 +555,7 @@ function testDisposeNode(): void {
   assert(computed.node.consumerCount === 0, 'disposed node should have no consumers');
 
   // Disposal should be idempotent.
-  runtime.disposeNode(computed.node);
+  computed.dispose();
 
   assert(runtime.nodeCount === 1, 'disposing the same node twice should be harmless');
 
@@ -952,6 +952,315 @@ function testRuntimeDotExport(): void {
   );
 }
 
+/**
+ * Verifies that disposing a computed node removes it from the runtime and
+ * disconnects its dependency relationships.
+ */
+function testComputedDisposal(): void {
+  // Create a fresh runtime for the disposal test.
+  const runtime = new ReactiveRuntime();
+
+  // Create a source value and a computed value depending on it.
+  const source = new ReactiveValue(runtime, 'source', 1);
+  const computed = new ReactiveComputed(runtime, 'computed', () => source.value * 2);
+
+  // Evaluate the computed value so its dependency is established.
+  assert(computed.value === 2, 'Computed value should initially equal 2.');
+
+  // Verify that the dependency exists before disposal.
+  assert(
+    computed.node.hasProducer(source.node),
+    'Computed should depend on source before disposal.',
+  );
+
+  // Dispose the computed node through the runtime.
+  computed.dispose();
+
+  // The runtime should no longer contain the computed node.
+  assert(
+    !runtime.getNodes().includes(computed.node),
+    'Disposed computed should be removed from the runtime.',
+  );
+
+  // The computed node should no longer have any dependencies.
+  assert(computed.node.producerCount === 0, 'Disposed computed should have no producers.');
+
+  // The source should no longer retain the computed as a consumer.
+  assert(
+    source.node.consumerCount === 0,
+    'Source should have no consumers after computed disposal.',
+  );
+}
+
+/**
+ * Verifies that disposing a computed more than once is harmless.
+ */
+function testComputedDisposalIsIdempotent(): void {
+  // Create a fresh runtime for the idempotence test.
+  const runtime = new ReactiveRuntime();
+
+  // Create a computed value owned by the runtime.
+  const computed = new ReactiveComputed(runtime, 'computed', () => 42);
+
+  // Dispose the computed once.
+  computed.dispose();
+
+  // Disposing the same computed again should not throw.
+  computed.dispose();
+
+  // The computed should remain absent from the runtime.
+  assert(
+    !runtime.getNodes().includes(computed.node),
+    'Disposed computed should remain removed from the runtime.',
+  );
+}
+
+/**
+ * Verifies that reading a disposed computed value is rejected rather than
+ * silently recreating or using a disconnected reactive computation.
+ */
+function testDisposedComputedCannotBeRead(): void {
+  // Create a fresh runtime for the disposal-state test.
+  const runtime = new ReactiveRuntime();
+
+  // Create a computed value owned by the runtime.
+  const computed = new ReactiveComputed(runtime, 'computed', () => 42);
+
+  // Dispose the computed before it is ever evaluated.
+  computed.dispose();
+
+  // The public lifecycle state should reflect the disposal.
+  assert(computed.disposed, 'Computed should report itself as disposed.');
+
+  // Reading a disposed computed should fail explicitly.
+  let errorMessage = '';
+
+  try {
+    // A disposed reactive computation must not execute again.
+    void computed.value;
+  } catch (error) {
+    // Capture the lifecycle error so its message can be verified.
+    errorMessage = error instanceof Error ? error.message : String(error);
+  }
+
+  // The disposed computed must reject evaluation.
+  assert(errorMessage.length > 0, 'Reading a disposed computed should throw.');
+
+  // Verify that the error specifically identifies the disposed state.
+  assert(
+    errorMessage === 'Reactive computed "computed" has been disposed.',
+    'Disposed computed should report the expected lifecycle error.',
+  );
+}
+
+/**
+ * Verifies that an evaluated computed transitions from active to disposed
+ * while preserving the runtime's graph cleanup guarantees.
+ */
+function testEvaluatedComputedDisposalState(): void {
+  // Create a fresh runtime for the disposal-state test.
+  const runtime = new ReactiveRuntime();
+
+  // Create a source and a computed that depends on it.
+  const source = new ReactiveValue(runtime, 'source', 1);
+  const computed = new ReactiveComputed(runtime, 'computed', () => source.value * 2);
+
+  // The computed starts in the active state.
+  assert(!computed.disposed, 'Computed should initially report itself as active.');
+
+  // Evaluate the computed so its dependency relationship is established.
+  assert(computed.value === 2, 'Computed should initially evaluate to 2.');
+
+  // Dispose the evaluated computed.
+  computed.dispose();
+
+  // Disposal should now be observable through the public API.
+  assert(computed.disposed, 'Evaluated computed should report itself as disposed.');
+
+  // Disposal should remove the dependency relationship.
+  assert(
+    source.node.consumerCount === 0,
+    'Source should have no consumers after computed disposal.',
+  );
+}
+
+/**
+ * Verifies that disposing a computed removes it from runtime diagnostics.
+ */
+function testDisposedComputedIsAbsentFromInspection(): void {
+  // Create a fresh runtime for the inspection test.
+  const runtime = new ReactiveRuntime();
+
+  // Create a computed node owned by the runtime.
+  const computed = new ReactiveComputed(runtime, 'computed', () => 42);
+
+  // Confirm the computed is initially visible to runtime inspection.
+  const before = runtime.inspect();
+
+  assert(
+    before.nodes.some((node) => node.id === 'computed'),
+    'Active computed should appear in runtime inspection.',
+  );
+
+  // Dispose the computed.
+  computed.dispose();
+
+  // Inspect the runtime again after disposal.
+  const after = runtime.inspect();
+
+  // The disposed computed should no longer be registered.
+  assert(
+    !after.nodes.some((node) => node.id === 'computed'),
+    'Disposed computed should be absent from runtime inspection.',
+  );
+
+  // The runtime should have no remaining nodes.
+  assert(
+    after.metrics.nodeCount === 0,
+    'Runtime should report zero nodes after computed disposal.',
+  );
+}
+
+/**
+ * Verifies that changing a former producer cannot revive a disposed
+ * computed value or recreate its dependency relationship.
+ */
+function testDisposedComputedCannotBeRevivedByProducerChange(): void {
+  // Create a fresh runtime for the lifecycle test.
+  const runtime = new ReactiveRuntime();
+
+  // Create a source and a computed depending on it.
+  const source = new ReactiveValue(runtime, 'source', 1);
+  const computed = new ReactiveComputed(runtime, 'computed', () => source.value * 2);
+
+  // Evaluate the computed so the source -> computed relationship exists.
+  assert(computed.value === 2, 'Computed should initially evaluate to 2.');
+
+  // Dispose the computed and disconnect it from the graph.
+  computed.dispose();
+
+  // Change the former producer after disposal.
+  source.value = 2;
+
+  // The disposed computed must remain disposed.
+  assert(computed.disposed, 'Computed should remain disposed after its former producer changes.');
+
+  // The disposed computed must remain absent from the runtime.
+  assert(
+    !runtime.getNodes().includes(computed.node),
+    'Disposed computed should not be re-registered by a producer change.',
+  );
+
+  // The source must not regain the disposed computed as a consumer.
+  assert(
+    source.node.consumerCount === 0,
+    'Source should not regain the disposed computed as a consumer.',
+  );
+}
+
+/**
+ * Verifies that disposing a computed while another computed is evaluating
+ * does not corrupt the active reactive consumer context.
+ */
+function testComputedDisposalPreservesReactiveContext(): void {
+  // Create a fresh runtime for the context test.
+  const runtime = new ReactiveRuntime();
+
+  // Create a source value.
+  const source = new ReactiveValue(runtime, 'source', 1);
+
+  // Create the computed that will later be disposed.
+  const disposable = new ReactiveComputed(runtime, 'disposable', () => source.value * 2);
+
+  // Establish the disposable computed's dependency.
+  assert(disposable.value === 2, 'Disposable computed should initially evaluate to 2.');
+
+  // Create another computed that disposes the first computed while it runs.
+  const outer = new ReactiveComputed(runtime, 'outer', () => {
+    // Read the source so the outer computation has its own dependency.
+    const value = source.value;
+
+    // Dispose the unrelated computed during the active computation.
+    disposable.dispose();
+
+    // Return the value observed by the outer computation.
+    return value;
+  });
+
+  // The outer computation should complete successfully.
+  assert(outer.value === 1, 'Outer computed should evaluate successfully.');
+
+  // The outer computed should remain connected to its source.
+  assert(outer.node.hasProducer(source.node), 'Outer computed should retain source as a producer.');
+
+  // The disposed computed must remain disconnected.
+  assert(
+    source.node.consumerCount === 1,
+    'Source should only retain the outer computed as a consumer.',
+  );
+
+  // The reactive context must be restored after the computation.
+  assert(
+    runtime.context.activeConsumer === undefined,
+    'Reactive context should be clear after computation.',
+  );
+}
+
+/**
+ * Verifies that a reactive value can be disposed and removed from the
+ * owning runtime.
+ */
+function testReactiveValueDisposal(): void {
+  // Create a fresh runtime for the disposal test.
+  const runtime = new ReactiveRuntime();
+
+  // Create a writable reactive value.
+  const source = new ReactiveValue(runtime, 'source', 1);
+
+  // The value should initially be registered with the runtime.
+  assert(
+    runtime.getNodes().includes(source.node),
+    'Reactive value should initially be registered.',
+  );
+
+  // Dispose the reactive value through the runtime.
+  source.dispose();
+
+  // The value should no longer be registered.
+  assert(
+    !runtime.getNodes().includes(source.node),
+    'Disposed reactive value should be removed from the runtime.',
+  );
+
+  // Its dependency graph should be isolated.
+  assert(source.node.producerCount === 0, 'Disposed reactive value should have no producers.');
+
+  assert(source.node.consumerCount === 0, 'Disposed reactive value should have no consumers.');
+}
+/**
+ * Verifies that a disposed runtime rejects registration of new reactive nodes.
+ */
+function testDisposedRuntimeRejectsNewNodes(): void {
+  // Create and immediately dispose the runtime.
+  const runtime = new ReactiveRuntime();
+  runtime.dispose();
+
+  // Track whether registration correctly throws.
+  let threw = false;
+
+  try {
+    // Creating a reactive value attempts to register its node.
+    new ReactiveValue(runtime, 'value', 1);
+  } catch (error) {
+    // Confirm that the runtime reports its disposed state.
+    threw =
+      error instanceof Error && error.message === 'Cannot register a node with a disposed runtime.';
+  }
+
+  // The disposed runtime must reject the new node.
+  assert(threw, 'Disposed runtime should reject registration of new nodes.');
+}
+
 // Run the runtime scheduler tests.
 testRuntimeOwnsScheduler();
 testScheduledChange();
@@ -979,3 +1288,12 @@ testGraphSnapshotContainsDependencies();
 testGraphSnapshotDiffDetectsAddedEdge();
 testGraphSnapshotDiffDetectsRemovedEdge();
 testRuntimeDotExport();
+testComputedDisposal();
+testComputedDisposalIsIdempotent();
+testDisposedComputedCannotBeRead();
+testEvaluatedComputedDisposalState();
+testDisposedComputedIsAbsentFromInspection();
+testDisposedComputedCannotBeRevivedByProducerChange();
+testComputedDisposalPreservesReactiveContext();
+testReactiveValueDisposal();
+testDisposedRuntimeRejectsNewNodes();

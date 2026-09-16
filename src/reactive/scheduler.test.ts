@@ -1,6 +1,9 @@
 import {ReactiveScheduler} from './scheduler.js';
 import {assert} from '../test/assert.js';
-
+import {
+  ReactiveEffectScheduleHandle,
+  ReactiveEffectScheduler,
+} from './reactive-scheduler-options.js';
 /**
  * Verifies that a scheduler starts with no pending work.
  */
@@ -368,6 +371,94 @@ function testSchedulerDefersTasksScheduledDuringFlush(): void {
   assert(deferredRuns === 1, 'deferred task should run during the next flush');
 }
 
+/**
+ * Verifies that cancelling a scheduled runtime task prevents it from
+ * executing.
+ */
+function testSchedulerCancelsPendingTask(): void {
+  // Create a fresh scheduler.
+  const scheduler = new ReactiveScheduler();
+
+  // Track task execution.
+  let runCount = 0;
+
+  // Schedule a task and retain its cancellation handle.
+  const handle = scheduler.schedule(() => {
+    // Record execution.
+    runCount++;
+  });
+
+  // Confirm that the task is pending.
+  assert(scheduler.pendingCount === 1, 'Scheduled task should initially be pending.');
+
+  // Cancel the task before flushing.
+  handle.cancel();
+
+  // The task should have been removed.
+  assert(scheduler.pendingCount === 0, 'Cancelled task should be removed from the scheduler.');
+
+  // Flush the scheduler.
+  scheduler.flush();
+
+  // The cancelled task must not execute.
+  assert(runCount === 0, 'Cancelled task should not execute.');
+
+  // Cancellation should be idempotent.
+  handle.cancel();
+
+  assert(scheduler.pendingCount === 0, 'Repeated cancellation should leave the scheduler empty.');
+}
+
+/**
+ * Verifies that cancellation cannot remove a task after it has entered
+ * an active flush batch.
+ */
+function testSchedulerCancellationAfterFlushStarts(): void {
+  // Create a fresh scheduler.
+  const scheduler = new ReactiveScheduler();
+
+  // Track execution.
+  let runCount = 0;
+
+  // Store the cancellation handle for the second task.
+  let secondHandle: ReactiveEffectScheduleHandle | undefined;
+
+  // Schedule the first task.
+  scheduler.schedule(() => {
+    // Schedule the second task while the scheduler is flushing.
+    secondHandle = scheduler.schedule(() => {
+      // Record second-task execution.
+      runCount++;
+    });
+
+    // The second task belongs to the next flush cycle.
+    assert(scheduler.pendingCount === 1, 'Task scheduled during flush should remain pending.');
+
+    // Cancel the second task before the current flush finishes.
+    secondHandle.cancel();
+  });
+
+  // Flush the first batch.
+  scheduler.flush();
+
+  // The second task was cancelled before the next flush.
+  assert(runCount === 0, 'Cancelled task should not execute in a later flush.');
+
+  assert(!scheduler.hasPendingWork, 'Cancelled task should no longer be pending.');
+}
+
+/**
+ * Verifies that ReactiveScheduler satisfies the shared effect scheduler
+ * contract.
+ */
+function testReactiveSchedulerImplementsEffectScheduler(): void {
+  const scheduler: ReactiveEffectScheduler = new ReactiveScheduler();
+
+  scheduler.schedule(() => {
+    // Intentionally empty: this test only verifies the shared contract.
+  });
+}
+
 // Run the scheduler test suite.
 testSchedulerStartsEmpty();
 testScheduling();
@@ -380,3 +471,6 @@ testFlushOne();
 testSchedulerErrorPropagates();
 testSchedulerContinuesAfterError();
 testSchedulerDefersTasksScheduledDuringFlush();
+testSchedulerCancelsPendingTask();
+testSchedulerCancellationAfterFlushStarts();
+testReactiveSchedulerImplementsEffectScheduler();

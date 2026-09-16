@@ -26,6 +26,13 @@ export class ReactiveComputed<T> {
   private _initialized = false;
 
   /**
+   * Indicates whether this computed value has been disposed.
+   *
+   * A disposed computed can no longer participate in the reactive graph.
+   */
+  private _disposed = false;
+
+  /**
    * Creates a lazy computed reactive value.
    *
    * @param runtime - Runtime that owns the reactive node.
@@ -61,6 +68,10 @@ export class ReactiveComputed<T> {
    * @throws {Error} If the computation attempts to read itself recursively.
    */
   recompute(): T {
+    // A disposed computed can no longer be evaluated.
+    if (this._disposed) {
+      throw new Error(`Reactive computed "${this.node.id}" has been disposed.`);
+    }
     // A computed value cannot safely evaluate itself recursively.
     if (this.node.computing) {
       throw new Error(`Reactive computed "${this.node.id}" cannot read itself while computing.`);
@@ -193,5 +204,33 @@ export class ReactiveComputed<T> {
 
     // Inspect producer versions only when the computed is otherwise clean.
     return this.runtime.pollProducersForChange(this.node);
+  }
+  /**
+   * Disposes this computed value and removes it from the reactive runtime.
+   *
+   * Disposal is idempotent. Once disposed, the computed can no longer be
+   * evaluated or re-enter the reactive graph.
+   */
+  dispose(): void {
+    // Disposal is intentionally idempotent.
+    if (this._disposed) {
+      return;
+    }
+
+    // Mark the computed as permanently disposed before disconnecting it.
+    this._disposed = true;
+
+    // Delegate graph cleanup and runtime unregistration to the runtime.
+    this.runtime.disposeNode(this.node);
+  }
+  /**
+   * Indicates whether this computed value has been disposed.
+   *
+   * @returns `true` when the computed can no longer participate in the
+   * reactive graph.
+   */
+  get disposed(): boolean {
+    // Expose the lifecycle state without allowing callers to mutate it.
+    return this._disposed;
   }
 }

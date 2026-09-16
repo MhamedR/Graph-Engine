@@ -40,3 +40,8 @@ export {
   type ReactiveGraphSnapshotDiff,
   type ReactiveGraphSnapshotNodeChange,
 } from './reactive-graph-diff.js';
+
+// Re-export effect scheduling types.
+export * from './reactive-scheduler-options.js';
+// Re-export the manual effect scheduler.
+export * from './manual-effect-scheduler.js';

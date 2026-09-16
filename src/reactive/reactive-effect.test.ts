@@ -3,6 +3,11 @@ import {ReactiveValue} from './reactive-value.js';
 import {assert} from '../test/assert.js';
 import {EffectState, ReactiveEffect} from './reactive-effect.js';
 import {ReactiveNode} from './reactive-node.js';
+import {ManualEffectScheduler} from './manual-effect-scheduler.js';
+import {
+  ReactiveEffectScheduleHandle,
+  ReactiveEffectScheduler,
+} from './reactive-scheduler-options.js';
 
 /**
  * Verifies that an effect executes and tracks the values it reads.
@@ -192,8 +197,7 @@ function testEffectSchedulingIsDeferred(): void {
 }
 
 /**
- * Verifies that an explicit effect run clears its scheduled state even when
- * the scheduler still contains the previously queued task.
+ * Verifies that an explicit effect run cancels its pending scheduled task.
  */
 function testManualRunCancelsScheduledState(): void {
   const runtime = new ReactiveRuntime();
@@ -217,22 +221,29 @@ function testManualRunCancelsScheduledState(): void {
 
   assert(effect.isScheduled, 'effect should be scheduled after invalidation');
 
-  assert(runtime.scheduler.pendingCount === 1, 'scheduler should contain one pending effect task');
+  assert(
+    runtime.scheduler.pendingCount === 1,
+    'runtime scheduler should contain one pending effect task',
+  );
 
-  // Execute the effect explicitly before the scheduler flushes.
+  // Run the effect explicitly before the scheduler flushes.
   effect.run();
 
   assert(executions === 2, 'explicit run should execute the effect immediately');
 
-  assert(!effect.isScheduled, "explicit run should clear the effect's scheduled state");
+  assert(!effect.isScheduled, 'explicit run should clear the effect scheduled state');
 
   assert(!effect.isDirty, 'explicit run should leave the effect clean');
 
-  // The old scheduler task still exists, but it should do nothing because
-  // the effect is already clean.
+  assert(
+    runtime.scheduler.pendingCount === 0,
+    'explicit run should cancel the pending scheduler task',
+  );
+
+  // Flushing should have nothing left to execute.
   runtime.flush();
 
-  assert(executions === 2, 'stale scheduled work should not execute the effect again');
+  assert(executions === 2, 'cancelled scheduled work should not execute the effect again');
 }
 
 /**
@@ -339,8 +350,8 @@ function testEffectDestructionIsIdempotent(): void {
 }
 
 /**
- * Verifies that destroying an effect clears its scheduled lifecycle state
- * even when a scheduler task is still waiting.
+ * Verifies that destroying an effect cancels its already scheduled runtime
+ * scheduler task.
  */
 function testDestroyScheduledEffect(): void {
   const runtime = new ReactiveRuntime();
@@ -364,7 +375,10 @@ function testDestroyScheduledEffect(): void {
 
   assert(effect.isScheduled, 'effect should be scheduled after invalidation');
 
-  assert(runtime.scheduler.pendingCount === 1, 'scheduler should contain one pending effect task');
+  assert(
+    runtime.scheduler.pendingCount === 1,
+    'runtime scheduler should contain one pending effect task',
+  );
 
   // Destroy the effect before its scheduled task executes.
   effect.destroy();
@@ -373,18 +387,20 @@ function testDestroyScheduledEffect(): void {
 
   assert(!effect.isScheduled, 'destroyed effect should no longer report itself as scheduled');
 
-  // The scheduler task itself still exists. It should become harmless when
-  // the scheduler eventually processes it.
   assert(
-    runtime.scheduler.pendingCount === 1,
-    'destroying the effect should not directly remove the scheduler task yet',
+    runtime.scheduler.pendingCount === 0,
+    'destroying the effect should cancel its pending runtime scheduler task',
   );
 
+  // The cancelled task should no longer execute.
   runtime.flush();
 
-  assert(executions === 1, 'destroyed scheduled effect should not execute again');
+  assert(
+    executions === 1,
+    'destroyed scheduled effect should not execute after its scheduled task is cancelled',
+  );
 
-  assert(!effect.isScheduled, 'effect should remain unscheduled after the stale task is processed');
+  assert(!effect.isScheduled, 'effect should remain unscheduled after destruction');
 }
 
 /**
@@ -2423,6 +2439,939 @@ function testEffectDestroyIsIdempotent(): void {
   assert(effect.destroyed, 'effect should remain destroyed after repeated destruction');
 }
 
+/**
+ * Verifies that destroying an effect removes its dependency relationships.
+ */
+function testDestroyedEffectDisconnectsDependencies(): void {
+  // Create a fresh runtime for the lifecycle test.
+  const runtime = new ReactiveRuntime();
+
+  // Create a source value.
+  const source = new ReactiveValue(runtime, 'source', 1);
+
+  // Create an effect that depends on the source.
+  const effect = new ReactiveEffect(runtime, 'effect', () => {
+    // Read the source so the dependency relationship is established.
+    void source.value;
+  });
+
+  // Run the effect to establish its dependency.
+  effect.run();
+
+  // Confirm that the source has the effect as a consumer.
+  assert(
+    source.node.consumerCount === 1,
+    'Source should have one consumer before effect destruction.',
+  );
+
+  // Destroy the effect.
+  effect.destroy();
+
+  // The source should no longer retain the destroyed effect.
+  assert(
+    source.node.consumerCount === 0,
+    'Source should have no consumers after effect destruction.',
+  );
+
+  // The destroyed effect should have no producers.
+  assert(effect.node.producerCount === 0, 'Destroyed effect should have no producers.');
+}
+
+/**
+ * Verifies that destroying an effect cancels an already scheduled execution.
+ */
+function testDestroyedEffectCancelsScheduledWork(): void {
+  // Create a fresh runtime for the scheduling test.
+  const runtime = new ReactiveRuntime();
+
+  // Create a source value.
+  const source = new ReactiveValue(runtime, 'source', 1);
+
+  // Count how many times the effect executes.
+  let runCount = 0;
+
+  // Create an effect that depends on the source.
+  const effect = new ReactiveEffect(runtime, 'effect', () => {
+    // Record each execution.
+    runCount++;
+
+    // Establish the source dependency.
+    void source.value;
+  });
+
+  // Establish the initial dependency.
+  effect.run();
+
+  // Changing the source should schedule the effect.
+  source.value = 2;
+
+  // Confirm that work is waiting in the scheduler.
+  assert(runtime.hasPendingWork, 'Effect should have pending scheduled work.');
+
+  // Destroy the effect before the scheduler flushes.
+  effect.destroy();
+
+  // Flush the runtime after destruction.
+  runtime.flush();
+
+  // The scheduled effect must not execute.
+  assert(runCount === 1, 'Destroyed effect should not execute pending scheduled work.');
+}
+/**
+ * Verifies that multiple source changes inside one batch coalesce into
+ * a single scheduled effect execution.
+ */
+function testEffectRunsOnceForBatchedChanges(): void {
+  // Create a fresh runtime for the batching test.
+  const runtime = new ReactiveRuntime();
+
+  // Create the source value observed by the effect.
+  const source = new ReactiveValue(runtime, 'source', 1);
+
+  // Record every value observed by the effect.
+  const observedValues: number[] = [];
+
+  // Create an effect that reads the source.
+  const effect = new ReactiveEffect(runtime, 'effect', () => {
+    // Record the current source value whenever the effect runs.
+    observedValues.push(source.value);
+  });
+
+  // Establish the initial dependency and initial execution.
+  effect.run();
+
+  // Change the source multiple times inside one batch.
+  runtime.batch(() => {
+    source.value = 2;
+    source.value = 3;
+    source.value = 4;
+  });
+
+  // The batch has now completed, so the effect should be scheduled.
+  assert(runtime.hasPendingWork, 'Effect should be scheduled after the batch completes.');
+
+  // Execute the scheduled effect.
+  runtime.flush();
+
+  // The effect should have executed once initially and once after the batch.
+  assert(observedValues.length === 2, 'Effect should execute only once for batched changes.');
+
+  // The batched execution must observe the final source value.
+  assert(observedValues[1] === 4, 'Effect should observe the final value from the batch.');
+}
+
+/**
+ * Verifies that nested batches defer effect execution until the outermost
+ * batch completes.
+ */
+function testNestedBatchesDeferEffectUntilOutermostBatch(): void {
+  // Create a fresh runtime for the nested batching test.
+  const runtime = new ReactiveRuntime();
+
+  // Create the source value observed by the effect.
+  const source = new ReactiveValue(runtime, 'source', 1);
+
+  // Count effect executions.
+  let runCount = 0;
+
+  // Create an effect that depends on the source.
+  const effect = new ReactiveEffect(runtime, 'effect', () => {
+    // Record each execution.
+    runCount++;
+
+    // Establish the source dependency.
+    void source.value;
+  });
+
+  // Establish the initial dependency.
+  effect.run();
+
+  // Enter the outer batch.
+  runtime.batch(() => {
+    // Change the source inside the outer batch.
+    source.value = 2;
+
+    // Enter a nested batch.
+    runtime.batch(() => {
+      // Change the source again inside the nested batch.
+      source.value = 3;
+
+      // The nested batch must still be active here.
+      assert(runtime.batchDepth === 2, 'Nested batch should increase the batch depth.');
+
+      // The effect must not be scheduled yet.
+      assert(!runtime.hasPendingWork, 'Effect should remain deferred inside nested batches.');
+    });
+
+    // The outer batch is still active after the nested batch completes.
+    assert(
+      runtime.batchDepth === 1,
+      'Outer batch should remain active after nested batch completes.',
+    );
+
+    // The effect must still not be scheduled.
+    assert(
+      !runtime.hasPendingWork,
+      'Effect should remain deferred until the outermost batch completes.',
+    );
+  });
+
+  // The outermost batch has completed, so the effect should now be scheduled.
+  assert(runtime.hasPendingWork, 'Effect should be scheduled after the outermost batch completes.');
+
+  // Execute the deferred effect.
+  runtime.flush();
+
+  // The effect should run once for the complete nested batch.
+  assert(runCount === 2, 'Effect should run once after the nested batch completes.');
+}
+
+/**
+ * Verifies that a failed batch restores batching state and does not leave
+ * the runtime permanently stuck inside a batch.
+ */
+function testFailedBatchRestoresRuntimeState(): void {
+  // Create a fresh runtime for the error-recovery test.
+  const runtime = new ReactiveRuntime();
+
+  // Track the error thrown by the batch callback.
+  let caughtError: unknown;
+
+  try {
+    // Execute a batch that intentionally fails.
+    runtime.batch(() => {
+      // Confirm that batching is active while the callback executes.
+      assert(runtime.isBatching, 'Runtime should be batching inside the batch callback.');
+
+      // Throw an intentional error to exercise the finally path.
+      throw new Error('batch failure');
+    });
+  } catch (error) {
+    // Capture the error so the test can verify it was propagated.
+    caughtError = error;
+  }
+
+  // The original batch error must be propagated to the caller.
+  assert(
+    caughtError instanceof Error && caughtError.message === 'batch failure',
+    'Batch should propagate the original callback error.',
+  );
+
+  // The runtime must leave batching mode after the failed batch.
+  assert(!runtime.isBatching, 'Runtime should not remain in batching mode after an error.');
+
+  // The batch nesting depth must be fully restored.
+  assert(runtime.batchDepth === 0, 'Batch depth should return to zero after an error.');
+
+  // No deferred batch tasks should remain stranded.
+  assert(
+    runtime.deferredBatchTaskCount === 0,
+    'Failed batch should not leave deferred tasks behind.',
+  );
+}
+
+/**
+ * Verifies that the runtime can process reactive work after a failed batch.
+ */
+function testRuntimeRemainsUsableAfterFailedBatch(): void {
+  // Create a fresh runtime for the recovery test.
+  const runtime = new ReactiveRuntime();
+
+  // Create the source value observed by the effect.
+  const source = new ReactiveValue(runtime, 'source', 1);
+
+  // Count effect executions.
+  let runCount = 0;
+
+  // Create an effect that depends on the source.
+  const effect = new ReactiveEffect(runtime, 'effect', () => {
+    // Record each execution.
+    runCount++;
+
+    // Establish the source dependency.
+    void source.value;
+  });
+
+  // Establish the initial dependency.
+  effect.run();
+
+  try {
+    // Execute a batch that intentionally fails.
+    runtime.batch(() => {
+      // Change the source while batching.
+      source.value = 2;
+
+      // Abort the batch with an intentional error.
+      throw new Error('batch failure');
+    });
+  } catch {
+    // Ignore the intentional error so the recovery behavior can be tested.
+  }
+
+  // The failed batch should have deferred the effect rather than losing it.
+  assert(runtime.hasPendingWork, 'Failed batch should preserve pending reactive work.');
+
+  // Execute the pending effect.
+  runtime.flush();
+
+  // The effect should have run once initially and once for the change.
+  assert(runCount === 2, 'Runtime should remain usable after a failed batch.');
+}
+
+/**
+ * Verifies that a custom scheduler receives effect work instead of the
+ * runtime scheduler.
+ */
+function testCustomSchedulerReceivesEffectWork(): void {
+  // Create a fresh runtime for the scheduler test.
+  const runtime = new ReactiveRuntime();
+
+  // Create the reactive source.
+  const source = new ReactiveValue(runtime, 'source', 1);
+
+  // Store scheduled tasks instead of executing them immediately.
+  const scheduledTasks: Array<() => void> = [];
+
+  // Create a scheduler that captures effect work.
+  const scheduler: ReactiveEffectScheduler = {
+    schedule(task): ReactiveEffectScheduleHandle {
+      // Keep the task for explicit execution by the test.
+      scheduledTasks.push(task);
+
+      // Return a no-op cancellation handle because this test scheduler does not
+      // currently model task removal.
+      return {
+        cancel(): void {
+          // Nothing to cancel in this test scheduler.
+        },
+      };
+    },
+  };
+
+  // Count effect executions.
+  let runCount = 0;
+
+  // Create the effect using the custom scheduler.
+  const effect = new ReactiveEffect(
+    runtime,
+    'effect',
+    () => {
+      // Record each execution.
+      runCount++;
+
+      // Establish the dependency.
+      void source.value;
+    },
+    scheduler,
+  );
+
+  // Run once to establish the dependency.
+  effect.run();
+
+  // Change the dependency.
+  source.value = 2;
+
+  // The custom scheduler should receive the work.
+  assert(scheduledTasks.length === 1, 'Custom scheduler should receive one effect task.');
+
+  // The runtime scheduler should remain unused.
+  assert(!runtime.hasPendingWork, 'Runtime scheduler should not receive custom-scheduled work.');
+
+  // The effect should not have executed yet.
+  assert(runCount === 1, 'Custom-scheduled effect should not execute immediately.');
+
+  // Execute the captured task.
+  scheduledTasks.shift()?.();
+
+  // The effect should now have executed once more.
+  assert(runCount === 2, 'Executing the scheduled task should run the effect.');
+
+  // Clean up the effect.
+  effect.destroy();
+}
+
+/**
+ * Verifies that custom scheduling still coalesces repeated invalidations.
+ */
+function testCustomSchedulerCoalescesInvalidations(): void {
+  // Create a fresh runtime.
+  const runtime = new ReactiveRuntime();
+
+  // Create the reactive source.
+  const source = new ReactiveValue(runtime, 'source', 1);
+
+  // Capture scheduled tasks.
+  const scheduledTasks: Array<() => void> = [];
+
+  // Create the custom scheduler.
+  const scheduler: ReactiveEffectScheduler = {
+    schedule(task): ReactiveEffectScheduleHandle {
+      // Keep the task for explicit execution by the test.
+      scheduledTasks.push(task);
+
+      // Return a no-op cancellation handle because this test scheduler does not
+      // currently model task removal.
+      return {
+        cancel(): void {
+          // Nothing to cancel in this test scheduler.
+        },
+      };
+    },
+  };
+
+  // Create the effect.
+  const effect = new ReactiveEffect(
+    runtime,
+    'effect',
+    () => {
+      // Establish the dependency.
+      void source.value;
+    },
+    scheduler,
+  );
+
+  // Establish the initial dependency.
+  effect.run();
+
+  // Trigger multiple changes before executing the scheduled task.
+  source.value = 2;
+  source.value = 3;
+  source.value = 4;
+
+  // Only one task should have been scheduled.
+  assert(
+    scheduledTasks.length === 1,
+    'Repeated invalidations should coalesce into one custom-scheduled task.',
+  );
+
+  // Execute the single task.
+  scheduledTasks.shift()?.();
+
+  // Clean up the effect.
+  effect.destroy();
+}
+
+/**
+ * Verifies that the manual scheduler stores tasks until explicitly flushed.
+ */
+function testManualSchedulerDefersTasks(): void {
+  // Create the scheduler under test.
+  const scheduler = new ManualEffectScheduler();
+
+  // Track how many tasks have executed.
+  let runCount = 0;
+
+  // Schedule one task.
+  scheduler.schedule(() => {
+    // Record the execution.
+    runCount++;
+  });
+
+  // The task must remain pending before flushing.
+  assert(scheduler.hasPendingWork, 'Manual scheduler should report pending work.');
+
+  // Exactly one task should be pending.
+  assert(scheduler.pendingCount === 1, 'Manual scheduler should contain one pending task.');
+
+  // The task must not have executed yet.
+  assert(runCount === 0, 'Manual scheduler should defer task execution.');
+
+  // Execute the pending task.
+  scheduler.flush();
+
+  // The task should now have executed.
+  assert(runCount === 1, 'Manual scheduler should execute tasks during flush.');
+
+  // The queue should now be empty.
+  assert(!scheduler.hasPendingWork, 'Manual scheduler should be empty after flush.');
+}
+
+/**
+ * Verifies that tasks scheduled during a flush wait for the next flush.
+ */
+function testManualSchedulerDefersNewTasksUntilNextFlush(): void {
+  // Create the scheduler under test.
+  const scheduler = new ManualEffectScheduler();
+
+  // Record execution order.
+  const execution: string[] = [];
+
+  // Schedule the initial task.
+  scheduler.schedule(() => {
+    // Record the first task.
+    execution.push('first');
+
+    // Schedule another task while the scheduler is flushing.
+    scheduler.schedule(() => {
+      // Record the deferred task.
+      execution.push('second');
+    });
+  });
+
+  // Flush the initial batch.
+  scheduler.flush();
+
+  // Only the original task should have executed.
+  assert(
+    execution.join(',') === 'first',
+    'Tasks scheduled during flush should wait for the next flush.',
+  );
+
+  // The newly scheduled task should remain pending.
+  assert(scheduler.pendingCount === 1, 'Task scheduled during flush should remain pending.');
+
+  // Flush the next batch.
+  scheduler.flush();
+
+  // The deferred task should now execute.
+  assert(
+    execution.join(',') === 'first,second',
+    'Deferred task should execute during the next flush.',
+  );
+}
+
+/**
+ * Verifies that clear removes pending tasks without executing them.
+ */
+function testManualSchedulerClear(): void {
+  // Create the scheduler under test.
+  const scheduler = new ManualEffectScheduler();
+
+  // Track task execution.
+  let runCount = 0;
+
+  // Schedule two tasks.
+  scheduler.schedule(() => {
+    runCount++;
+  });
+
+  scheduler.schedule(() => {
+    runCount++;
+  });
+
+  // Remove the pending tasks.
+  scheduler.clear();
+
+  // The scheduler should now be empty.
+  assert(scheduler.pendingCount === 0, 'Clear should remove all pending tasks.');
+
+  // Flushing should not execute the cleared tasks.
+  scheduler.flush();
+
+  assert(runCount === 0, 'Cleared tasks should not execute.');
+}
+
+/**
+ * Verifies that a reactive effect can use the manual scheduler to defer
+ * execution until the scheduler is explicitly flushed.
+ */
+function testEffectWithManualScheduler(): void {
+  // Create a fresh runtime.
+  const runtime = new ReactiveRuntime();
+
+  // Create the reactive source.
+  const source = new ReactiveValue(runtime, 'source', 1);
+
+  // Create a manually controlled scheduler.
+  const scheduler = new ManualEffectScheduler();
+
+  // Record every value observed by the effect.
+  const observedValues: number[] = [];
+
+  // Create the effect with the custom scheduler.
+  const effect = new ReactiveEffect(
+    runtime,
+    'effect',
+    () => {
+      // Record the current source value.
+      observedValues.push(source.value);
+    },
+    scheduler,
+  );
+
+  // Establish the initial dependency and execution.
+  effect.run();
+
+  // The initial execution should have observed the initial value.
+  assert(observedValues.join(',') === '1', 'Effect should initially observe the source value.');
+
+  // Change the source.
+  source.value = 2;
+
+  // The custom scheduler should now contain the effect task.
+  assert(scheduler.pendingCount === 1, 'Source change should schedule one task.');
+
+  // The effect should still have its old observed value.
+  assert(observedValues.join(',') === '1', 'Custom scheduler should defer effect execution.');
+
+  // Flush the custom scheduler.
+  scheduler.flush();
+
+  // The effect should now observe the new source value.
+  assert(
+    observedValues.join(',') === '1,2',
+    'Flushing the custom scheduler should execute the effect.',
+  );
+
+  // The runtime scheduler should not contain this effect task.
+  assert(!runtime.hasPendingWork, 'Custom scheduler should bypass the runtime scheduler.');
+
+  // Clean up the effect.
+  effect.destroy();
+}
+
+/**
+ * Verifies that a scheduler failure propagates and does not permanently
+ * mark the effect as scheduled.
+ */
+function testCustomSchedulerFailureRestoresSchedulingState(): void {
+  // Create a fresh runtime.
+  const runtime = new ReactiveRuntime();
+
+  // Create a scheduler that deliberately rejects scheduling.
+  const scheduler: ReactiveEffectScheduler = {
+    schedule(): ReactiveEffectScheduleHandle {
+      // Simulate a scheduler failure.
+      throw new Error('scheduler failure');
+    },
+  };
+
+  // Create the effect using the failing scheduler.
+  const effect = new ReactiveEffect(
+    runtime,
+    'effect',
+    () => {
+      // The effect body is not expected to execute in this test.
+    },
+    scheduler,
+  );
+
+  // Attempt to schedule the effect directly.
+  let errorMessage = '';
+
+  try {
+    // The scheduler failure should propagate through schedule().
+    effect.schedule();
+  } catch (error) {
+    // Capture the scheduler error.
+    errorMessage = error instanceof Error ? error.message : String(error);
+  }
+
+  // Confirm that the scheduler error propagated.
+  assert(
+    errorMessage === 'scheduler failure',
+    'Custom scheduler errors should propagate to the caller.',
+  );
+
+  // Retry scheduling to verify that the failed attempt did not leave the
+  // effect permanently marked as scheduled.
+  errorMessage = '';
+
+  try {
+    // The scheduler should be invoked again.
+    effect.schedule();
+  } catch (error) {
+    // Capture the second scheduler failure.
+    errorMessage = error instanceof Error ? error.message : String(error);
+  }
+
+  // Confirm that the effect remained schedulable after the first failure.
+  assert(
+    errorMessage === 'scheduler failure',
+    'Effect should remain schedulable after a scheduler failure.',
+  );
+
+  // Clean up the effect.
+  effect.destroy();
+}
+
+/**
+ * Verifies that destroying an effect prevents already scheduled custom
+ * scheduler work from executing the effect.
+ */
+function testDestroyedEffectCancelsCustomScheduledWork(): void {
+  // Create a fresh runtime.
+  const runtime = new ReactiveRuntime();
+
+  // Create the reactive source.
+  const source = new ReactiveValue(runtime, 'source', 1);
+
+  // Create a manual scheduler so execution can be controlled explicitly.
+  const scheduler = new ManualEffectScheduler();
+
+  // Count effect executions.
+  let runCount = 0;
+
+  // Create the effect using the manual scheduler.
+  const effect = new ReactiveEffect(
+    runtime,
+    'effect',
+    () => {
+      // Record every execution.
+      runCount++;
+
+      // Establish the dependency.
+      void source.value;
+    },
+    scheduler,
+  );
+
+  // Establish the initial dependency.
+  effect.run();
+
+  // Change the source and schedule the effect.
+  source.value = 2;
+
+  // Confirm that the custom scheduler received the task.
+  assert(scheduler.pendingCount === 1, 'Custom scheduler should contain one pending effect task.');
+
+  // Destroy the effect before the scheduler executes its task.
+  effect.destroy();
+
+  // Execute the previously queued task.
+  scheduler.flush();
+
+  // The destroyed effect must not execute.
+  assert(runCount === 1, 'Destroyed effect should not execute queued custom scheduler work.');
+
+  // The scheduler itself should now be empty.
+  assert(!scheduler.hasPendingWork, 'Manual scheduler should be empty after flushing.');
+}
+
+/**
+ * Verifies that a custom-scheduled effect is deferred until the outermost
+ * runtime batch completes and is still coalesced into one scheduled task.
+ */
+function testBatchedChangesWithCustomScheduler(): void {
+  // Create a fresh runtime.
+  const runtime = new ReactiveRuntime();
+
+  // Create the reactive source.
+  const source = new ReactiveValue(runtime, 'source', 1);
+
+  // Create a manually controlled scheduler.
+  const scheduler = new ManualEffectScheduler();
+
+  // Record the values observed by the effect.
+  const observedValues: number[] = [];
+
+  // Create the effect using the custom scheduler.
+  const effect = new ReactiveEffect(
+    runtime,
+    'effect',
+    () => {
+      // Record the current source value.
+      observedValues.push(source.value);
+    },
+    scheduler,
+  );
+
+  // Establish the initial dependency.
+  effect.run();
+
+  // Perform multiple changes inside one batch.
+  runtime.batch(() => {
+    // First change.
+    source.value = 2;
+
+    // Second change.
+    source.value = 3;
+
+    // Third change.
+    source.value = 4;
+
+    // The custom scheduler must not receive work while batching.
+    assert(
+      scheduler.pendingCount === 0,
+      'Custom scheduler should not receive effect work during a batch.',
+    );
+  });
+
+  // The outermost batch should now have deferred one effect task.
+  assert(scheduler.pendingCount === 1, 'Batch completion should schedule one custom effect task.');
+
+  // The effect should still have observed only the initial value.
+  assert(
+    observedValues.join(',') === '1',
+    'Effect should not run before the custom scheduler is flushed.',
+  );
+
+  // Execute the deferred effect.
+  scheduler.flush();
+
+  // The effect should see only the final value from the batch.
+  assert(
+    observedValues.join(',') === '1,4',
+    'Batched custom-scheduled effect should observe the final value once.',
+  );
+
+  // The runtime scheduler should remain unused.
+  assert(
+    !runtime.hasPendingWork,
+    'Runtime scheduler should remain empty when using a custom scheduler.',
+  );
+
+  // Clean up the effect.
+  effect.destroy();
+}
+
+/**
+ * Verifies that cancelling a manual scheduler task prevents it from
+ * executing.
+ */
+function testManualSchedulerCancelsTask(): void {
+  // Create the scheduler under test.
+  const scheduler = new ManualEffectScheduler();
+
+  // Track whether the task executes.
+  let runCount = 0;
+
+  // Schedule a task and retain its cancellation handle.
+  const handle = scheduler.schedule(() => {
+    // Record execution.
+    runCount++;
+  });
+
+  // The task should initially be pending.
+  assert(scheduler.pendingCount === 1, 'Scheduled task should initially be pending.');
+
+  // Cancel the pending task.
+  handle.cancel();
+
+  // The task should have been removed.
+  assert(scheduler.pendingCount === 0, 'Cancelled task should be removed from the scheduler.');
+
+  // Flushing should not execute the cancelled task.
+  scheduler.flush();
+
+  // Confirm that the task never ran.
+  assert(runCount === 0, 'Cancelled task should not execute.');
+
+  // Cancelling again should be harmless.
+  handle.cancel();
+
+  // The scheduler should remain empty.
+  assert(!scheduler.hasPendingWork, 'Repeated cancellation should leave the scheduler empty.');
+}
+
+/**
+ * Verifies that destroying an effect actively cancels its custom scheduler
+ * task.
+ */
+function testDestroyCancelsCustomSchedulerTask(): void {
+  // Create a fresh runtime.
+  const runtime = new ReactiveRuntime();
+
+  // Create the reactive source.
+  const source = new ReactiveValue(runtime, 'source', 1);
+
+  // Create a manual scheduler.
+  const scheduler = new ManualEffectScheduler();
+
+  // Track effect executions.
+  let runCount = 0;
+
+  // Create the effect using the manual scheduler.
+  const effect = new ReactiveEffect(
+    runtime,
+    'effect',
+    () => {
+      // Record execution.
+      runCount++;
+
+      // Establish the dependency.
+      void source.value;
+    },
+    scheduler,
+  );
+
+  // Establish the initial dependency.
+  effect.run();
+
+  // Change the source to schedule the effect.
+  source.value = 2;
+
+  // Confirm that custom scheduler work exists.
+  assert(scheduler.pendingCount === 1, 'Effect should have one pending custom scheduler task.');
+
+  // Destroy the effect.
+  effect.destroy();
+
+  // Destruction should actively remove the task from the scheduler.
+  assert(
+    scheduler.pendingCount === 0,
+    'Destroying the effect should cancel its custom scheduler task.',
+  );
+
+  // Flush the scheduler as an additional safety check.
+  scheduler.flush();
+
+  // The effect must not execute again.
+  assert(runCount === 1, 'Destroyed effect should not execute cancelled custom scheduler work.');
+}
+
+/**
+ * Verifies that a custom-scheduled effect can schedule new work after its
+ * previous scheduled task has completed.
+ */
+function testCustomSchedulerCanRescheduleAfterExecution(): void {
+  // Create a fresh runtime.
+  const runtime = new ReactiveRuntime();
+
+  // Create the reactive source.
+  const source = new ReactiveValue(runtime, 'source', 1);
+
+  // Create a manually controlled scheduler.
+  const scheduler = new ManualEffectScheduler();
+
+  // Record every value observed by the effect.
+  const observedValues: number[] = [];
+
+  // Create the effect using the custom scheduler.
+  const effect = new ReactiveEffect(
+    runtime,
+    'effect',
+    () => {
+      // Record the current source value.
+      observedValues.push(source.value);
+    },
+    scheduler,
+  );
+
+  // Establish the initial dependency.
+  effect.run();
+
+  // First change should schedule one task.
+  source.value = 2;
+
+  assert(scheduler.pendingCount === 1, 'First source change should schedule one task.');
+
+  // Execute the first scheduled task.
+  scheduler.flush();
+
+  assert(observedValues.join(',') === '1,2', 'First scheduled task should execute the effect.');
+
+  // A second change should be able to schedule another task.
+  source.value = 3;
+
+  assert(
+    scheduler.pendingCount === 1,
+    'Effect should be schedulable again after its previous task completes.',
+  );
+
+  // Execute the second scheduled task.
+  scheduler.flush();
+
+  // Confirm both scheduled executions occurred.
+  assert(
+    observedValues.join(',') === '1,2,3',
+    'Effect should execute again after being rescheduled.',
+  );
+
+  // Clean up the effect.
+  effect.destroy();
+}
+
 // Run the effect test suite.
 testEffectExecution();
 testEffectInvalidation();
@@ -2479,3 +3428,21 @@ testEffectDynamicDependenciesAfterError();
 testDestroyedEffectCannotRun();
 testDestroyedEffectStopsReacting();
 testEffectDestroyIsIdempotent();
+testDestroyedEffectDisconnectsDependencies();
+testDestroyedEffectCancelsScheduledWork();
+testEffectRunsOnceForBatchedChanges();
+testNestedBatchesDeferEffectUntilOutermostBatch();
+testFailedBatchRestoresRuntimeState();
+testRuntimeRemainsUsableAfterFailedBatch();
+testCustomSchedulerReceivesEffectWork();
+testCustomSchedulerCoalescesInvalidations();
+testManualSchedulerDefersTasks();
+testManualSchedulerDefersNewTasksUntilNextFlush();
+testManualSchedulerClear();
+testEffectWithManualScheduler();
+testCustomSchedulerFailureRestoresSchedulingState();
+testDestroyedEffectCancelsCustomScheduledWork();
+testBatchedChangesWithCustomScheduler();
+testManualSchedulerCancelsTask();
+testDestroyCancelsCustomSchedulerTask();
+testCustomSchedulerCanRescheduleAfterExecution();
