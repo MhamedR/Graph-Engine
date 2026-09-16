@@ -1,4 +1,5 @@
 import {ReactiveLink} from './reactive-link.js';
+import {Queue} from '../data-structures/queue.js';
 
 /**
  * Describes the observable diagnostic state of a reactive node.
@@ -400,14 +401,15 @@ export class ReactiveNode {
     const visited = new Set<ReactiveNode>();
 
     // Start propagation from this node.
-    const queue: ReactiveNode[] = [this];
+    const queue = new Queue<ReactiveNode>();
+    queue.enqueue(this);
 
     // Store only nodes that actually changed from clean to dirty.
     const notified: string[] = [];
 
-    while (queue.length > 0) {
+    while (!queue.isEmpty()) {
       // Remove the next node from the traversal queue.
-      const current = queue.shift()!;
+      const current = queue.dequeue()!;
 
       // Skip nodes that have already been traversed.
       if (visited.has(current)) {
@@ -431,7 +433,7 @@ export class ReactiveNode {
 
         // Continue traversing regardless of whether this consumer was
         // already dirty. A dirty node can still have clean descendants.
-        queue.push(consumer);
+        queue.enqueue(consumer);
       }
     }
 

@@ -5,8 +5,8 @@
  * scheduling, and effects work together as one system through the public API.
  */
 
-import {ReactiveComputed, ReactiveEffect, ReactiveRuntime, ReactiveValue} from '../index.js';
-import {assert} from '../test/assert.js';
+import {ReactiveComputed, ReactiveEffect, ReactiveRuntime, ReactiveValue} from '../../src/index.js';
+import {assert} from '../assert.js';
 
 /**
  * Verifies the complete source → computed → computed → effect pipeline.

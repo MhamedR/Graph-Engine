@@ -1,9 +1,9 @@
-import {ReactiveScheduler} from './scheduler.js';
-import {assert} from '../test/assert.js';
+import {ReactiveScheduler} from '../../src/reactive/scheduler.js';
+import {assert} from '../assert.js';
 import {
   ReactiveEffectScheduleHandle,
   ReactiveEffectScheduler,
-} from './reactive-scheduler-options.js';
+} from '../../src/reactive/reactive-scheduler-options.js';
 /**
  * Verifies that a scheduler starts with no pending work.
  */

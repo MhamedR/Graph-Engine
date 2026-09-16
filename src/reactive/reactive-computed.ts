@@ -144,8 +144,14 @@ export class ReactiveComputed<T> {
    * Returns the current computed value.
    *
    * @returns The current computed value.
+   * @throws {Error} If this computed value has been disposed.
    */
   get value(): T {
+    // A disposed computed can no longer be read by reactive computations.
+    if (this._disposed) {
+      throw new Error(`Reactive computed "${this.node.id}" has been disposed.`);
+    }
+
     // If another computation is currently running, register this computed
     // node as one of that computation's dependencies.
     const consumer = this.runtime.context.activeConsumer;
@@ -210,6 +216,9 @@ export class ReactiveComputed<T> {
    *
    * Disposal is idempotent. Once disposed, the computed can no longer be
    * evaluated or re-enter the reactive graph.
+   *
+   * Downstream consumers are invalidated before the node is disconnected so
+   * they cannot keep serving cached values that depended on this computed.
    */
   dispose(): void {
     // Disposal is intentionally idempotent.
@@ -217,10 +226,14 @@ export class ReactiveComputed<T> {
       return;
     }
 
-    // Mark the computed as permanently disposed before disconnecting it.
+    // Mark the computed as permanently disposed before notifying consumers.
     this._disposed = true;
 
-    // Delegate graph cleanup and runtime unregistration to the runtime.
+    // Invalidate downstream consumers while the dependency relationships
+    // still exist so they cannot keep trusting their cached values.
+    this.node.notifyConsumers();
+
+    // Disconnect the node and unregister it from the runtime.
     this.runtime.disposeNode(this.node);
   }
   /**

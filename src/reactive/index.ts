@@ -1,11 +1,17 @@
 /**
- * Public entry point for the reactive module.
+ * Public reactive API.
  *
- * Re-exports the core reactive primitives, runtime, scheduler, graph
- * diagnostics, and supporting types from one stable module entry point.
+ * Application API:
+ * - ReactiveRuntime, ReactiveValue, ReactiveComputed, ReactiveEffect
+ * - ReactiveScheduler, ManualEffectScheduler, scheduler types
+ * - runtime diagnostics and graph snapshots
+ *
+ * Advanced API, kept for compatibility:
+ * - ReactiveNode, ReactiveLink, ReactiveContext, Epoch
+ *   These are the engine's graph primitives. Application code should usually
+ *   use values, computeds, and effects rather than mutating nodes directly.
  */
 
-// Runtime and runtime diagnostics.
 export {
   ReactiveRuntime,
   type ReactiveGraphMetrics,
@@ -14,34 +20,29 @@ export {
   type ReactiveRuntimeState,
 } from './reactive-runtime.js';
 
-// Core reactive primitives.
-export {ReactiveNode} from './reactive-node.js';
 export {ReactiveValue} from './reactive-value.js';
 export {ReactiveComputed} from './reactive-computed.js';
 export {ReactiveEffect} from './reactive-effect.js';
 
-// Reactive scheduling.
 export {ReactiveScheduler} from './scheduler.js';
+export {ManualEffectScheduler} from './manual-effect-scheduler.js';
+export type {
+  ReactiveEffectScheduleHandle,
+  ReactiveEffectScheduler,
+} from './reactive-scheduler-options.js';
 
-// Reactive dependency links and execution context.
-export {ReactiveLink} from './reactive-link.js';
-export {ReactiveContext} from './reactive-context.js';
-export {Epoch} from './epoch.js';
-
-// Graph snapshots and snapshot comparison.
 export {
   type ReactiveGraphSnapshot,
   type ReactiveGraphSnapshotEdge,
   type ReactiveGraphSnapshotNode,
 } from './reactive-graph-snapshot.js';
-
 export {
   diffReactiveGraphSnapshots,
   type ReactiveGraphSnapshotDiff,
   type ReactiveGraphSnapshotNodeChange,
 } from './reactive-graph-diff.js';
 
-// Re-export effect scheduling types.
-export * from './reactive-scheduler-options.js';
-// Re-export the manual effect scheduler.
-export * from './manual-effect-scheduler.js';
+export {ReactiveNode} from './reactive-node.js';
+export {ReactiveLink} from './reactive-link.js';
+export {ReactiveContext} from './reactive-context.js';
+export {Epoch} from './epoch.js';

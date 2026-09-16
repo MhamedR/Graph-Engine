@@ -52,15 +52,33 @@ export class ManualEffectScheduler implements ReactiveEffectScheduler {
    * Executes all currently pending tasks.
    *
    * Tasks scheduled while flushing are left for a later flush.
+   *
+   * If a task throws, the remaining tasks in the current batch still run.
+   * The first error is rethrown after the batch completes.
+   *
+   * @throws {unknown} The first error thrown by a scheduled task.
    */
   flush(): void {
     // Capture the current batch so tasks scheduled during execution remain
     // queued for the next flush cycle.
     const batch = this.tasks.splice(0);
 
+    // Remember the first task error without interrupting the remaining tasks.
+    let firstError: unknown;
+
     // Execute every task that was pending when the flush started.
     for (const task of batch) {
-      task();
+      try {
+        task();
+      } catch (error) {
+        if (firstError === undefined) {
+          firstError = error;
+        }
+      }
+    }
+
+    if (firstError !== undefined) {
+      throw firstError;
     }
   }
 

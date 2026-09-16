@@ -1,7 +1,7 @@
-import {ReactiveRuntime} from './reactive-runtime.js';
-import {ReactiveValue} from './reactive-value.js';
-import {ReactiveComputed} from './reactive-computed.js';
-import {assert} from '../test/assert.js';
+import {ReactiveRuntime} from '../../src/reactive/reactive-runtime.js';
+import {ReactiveValue} from '../../src/reactive/reactive-value.js';
+import {ReactiveComputed} from '../../src/reactive/reactive-computed.js';
+import {assert} from '../assert.js';
 
 /**
  * Creates a fresh runtime for this dynamic dependency test.

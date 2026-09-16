@@ -1,10 +1,10 @@
-import {ReactiveRuntime} from './reactive-runtime.js';
-import {assert} from '../test/assert.js';
-import {ReactiveNode} from './reactive-node.js';
-import {ReactiveValue} from './reactive-value.js';
-import {ReactiveComputed} from './reactive-computed.js';
-import {diffReactiveGraphSnapshots} from './reactive-graph-diff.js';
-import {ReactiveEffect} from './reactive-effect.js';
+import {ReactiveRuntime} from '../../src/reactive/reactive-runtime.js';
+import {assert} from '../assert.js';
+import {ReactiveNode} from '../../src/reactive/reactive-node.js';
+import {ReactiveValue} from '../../src/reactive/reactive-value.js';
+import {ReactiveComputed} from '../../src/reactive/reactive-computed.js';
+import {diffReactiveGraphSnapshots} from '../../src/reactive/reactive-graph-diff.js';
+import {ReactiveEffect} from '../../src/reactive/reactive-effect.js';
 
 /**
  * Verifies that every runtime owns a scheduler.
@@ -1207,6 +1207,67 @@ function testComputedDisposalPreservesReactiveContext(): void {
 }
 
 /**
+ * Verifies that disposing a computed invalidates downstream consumers
+ * instead of leaving them with a stale cached value.
+ */
+function testComputedDisposalInvalidatesConsumers(): void {
+  const runtime = new ReactiveRuntime();
+  const source = new ReactiveValue(runtime, 'source', 2);
+  const doubled = new ReactiveComputed(runtime, 'doubled', () => source.value * 2);
+  const quadrupled = new ReactiveComputed(runtime, 'quadrupled', () => doubled.value * 2);
+
+  assert(quadrupled.value === 8, 'downstream computed should initialize from its producer');
+  assert(!quadrupled.node.dirty, 'downstream computed should be clean after evaluation');
+
+  doubled.dispose();
+
+  assert(quadrupled.node.dirty, 'disposing a computed should invalidate its consumers');
+  assert(
+    !quadrupled.node.hasProducer(doubled.node),
+    'disposed computed should be disconnected from its consumers',
+  );
+
+  let errorMessage = '';
+
+  try {
+    void quadrupled.value;
+  } catch (error) {
+    errorMessage = error instanceof Error ? error.message : String(error);
+  }
+
+  assert(
+    errorMessage === 'Reactive computed "doubled" has been disposed.',
+    'downstream recomputation should surface the disposed producer error',
+  );
+}
+
+/**
+ * Verifies that reading a disposed computed during another computation does
+ * not register a dependency on the disposed node.
+ */
+function testDisposedComputedReadDoesNotTrackProducer(): void {
+  const runtime = new ReactiveRuntime();
+  const source = new ReactiveValue(runtime, 'source', 1);
+  const disposed = new ReactiveComputed(runtime, 'disposed', () => source.value);
+
+  disposed.dispose();
+
+  const consumer = new ReactiveComputed(runtime, 'consumer', () => {
+    try {
+      return disposed.value;
+    } catch {
+      return -1;
+    }
+  });
+
+  assert(consumer.value === -1, 'consumer should observe the disposed-read failure');
+  assert(
+    !consumer.node.hasProducer(disposed.node),
+    'reading a disposed computed should not create a producer relationship',
+  );
+}
+
+/**
  * Verifies that a reactive value can be disposed and removed from the
  * owning runtime.
  */
@@ -1295,5 +1356,7 @@ testEvaluatedComputedDisposalState();
 testDisposedComputedIsAbsentFromInspection();
 testDisposedComputedCannotBeRevivedByProducerChange();
 testComputedDisposalPreservesReactiveContext();
+testComputedDisposalInvalidatesConsumers();
+testDisposedComputedReadDoesNotTrackProducer();
 testReactiveValueDisposal();
 testDisposedRuntimeRejectsNewNodes();

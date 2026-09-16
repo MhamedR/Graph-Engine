@@ -9,10 +9,21 @@ import {GraphEdge} from './graph-edge.js';
 export class DirectedGraph {
   /** All nodes in the graph, indexed by node ID. */
   private readonly nodes = new Map<string, GraphNode>();
-  /** Maps each node ID to the IDs of nodes it has edges pointing to. */
-  private readonly outgoing = new Map<string, Set<GraphEdge>>();
-  /** Maps each node ID to the IDs of nodes with edges pointing to it. */
-  private readonly incoming = new Map<string, Set<GraphEdge>>();
+  /**
+   * Outgoing adjacency index: source ID → destination ID → edge.
+   *
+   * Destination keys give O(1) `hasEdge` / `removeEdge` instead of scanning
+   * every outgoing relationship of a high-degree node.
+   */
+  private readonly outgoing = new Map<string, Map<string, GraphEdge>>();
+  /**
+   * Incoming adjacency index: destination ID → source ID → edge.
+   *
+   * The same GraphEdge instance is stored in both indexes.
+   */
+  private readonly incoming = new Map<string, Map<string, GraphEdge>>();
+  /** Next edge ID to assign inside this graph. */
+  private nextEdgeId = 0;
   /**
    * Tracks the number of structural changes made to the graph.
    *
@@ -38,8 +49,8 @@ export class DirectedGraph {
   /**
    * Adds a node to the graph.
    *
-   * Every node receives an empty outgoing and incoming edge set so that
-   * both adjacency indexes are immediately ready to use.
+   * Every node receives empty outgoing and incoming adjacency maps so that
+   * both indexes are immediately ready to use.
    *
    * @param node - The node to add.
    * @throws {Error} If a node with the same ID already exists.
@@ -50,8 +61,8 @@ export class DirectedGraph {
     }
 
     this.nodes.set(node.id, node);
-    this.outgoing.set(node.id, new Set());
-    this.incoming.set(node.id, new Set());
+    this.outgoing.set(node.id, new Map());
+    this.incoming.set(node.id, new Map());
     // The graph structure has changed, so advance its version.
     this.incrementVersion();
   }
@@ -60,6 +71,9 @@ export class DirectedGraph {
    *
    * Removing a node requires removing both its outgoing and incoming edges.
    * This keeps the outgoing and incoming adjacency indexes synchronized.
+   *
+   * The graph version always advances when a node is actually removed,
+   * including isolated nodes that have no incident edges.
    *
    * @param id - ID of the node to remove.
    */
@@ -71,10 +85,10 @@ export class DirectedGraph {
 
     // Copy the edge relationships before removing them.
     //
-    // We make copies because removeEdge() mutates the original Sets while
+    // We make copies because removeEdge() mutates the original Maps while
     // we are iterating through the relationships.
-    const incomingEdges = [...this.incoming.get(id)!];
-    const outgoingEdges = [...this.outgoing.get(id)!];
+    const incomingEdges = [...this.incoming.get(id)!.values()];
+    const outgoingEdges = [...this.outgoing.get(id)!.values()];
 
     // Remove every edge pointing into this node.
     for (const edge of incomingEdges) {
@@ -90,6 +104,9 @@ export class DirectedGraph {
     this.incoming.delete(id);
     this.outgoing.delete(id);
     this.nodes.delete(id);
+    // Removing the node is itself a structural change, even when it had
+    // no remaining edges after incident-edge cleanup.
+    this.incrementVersion();
   }
   /**
    * Checks whether a node with the given ID exists in the graph.
@@ -138,11 +155,11 @@ export class DirectedGraph {
     }
 
     // Create one edge object representing this relationship.
-    const edge = new GraphEdge(from, to);
+    const edge = new GraphEdge(from, to, this.nextEdgeId++);
 
-    // Store the same edge in both directions.
-    this.outgoing.get(from)!.add(edge);
-    this.incoming.get(to)!.add(edge);
+    // Store the same edge in both directions, keyed by the other endpoint.
+    this.outgoing.get(from)!.set(to, edge);
+    this.incoming.get(to)!.set(from, edge);
     // The graph structure has changed, so advance its version.
     this.incrementVersion();
   }
@@ -161,8 +178,8 @@ export class DirectedGraph {
     this.assertNodeExists(from);
     this.assertNodeExists(to);
 
-    // Find the relationship object shared by both indexes.
-    const edge = [...this.outgoing.get(from)!].find((candidate) => candidate.to === to);
+    // Look up the shared relationship object in O(1).
+    const edge = this.outgoing.get(from)!.get(to);
 
     // Nothing to remove if the relationship does not exist.
     if (!edge) {
@@ -170,8 +187,8 @@ export class DirectedGraph {
     }
 
     // Remove the same edge object from both indexes.
-    this.outgoing.get(from)!.delete(edge);
-    this.incoming.get(to)!.delete(edge);
+    this.outgoing.get(from)!.delete(to);
+    this.incoming.get(to)!.delete(from);
     // The graph structure has changed, so advance its version.
     this.incrementVersion();
   }
@@ -185,7 +202,7 @@ export class DirectedGraph {
   getOutgoing(id: string): GraphNode[] {
     this.assertNodeExists(id);
 
-    return [...this.outgoing.get(id)!]
+    return [...this.outgoing.get(id)!.values()]
       .map((edge) => this.nodes.get(edge.to))
       .filter((node): node is GraphNode => node !== undefined);
   }
@@ -199,7 +216,7 @@ export class DirectedGraph {
   getIncoming(id: string): GraphNode[] {
     this.assertNodeExists(id);
 
-    return [...this.incoming.get(id)!]
+    return [...this.incoming.get(id)!.values()]
       .map((edge) => this.nodes.get(edge.from))
       .filter((node): node is GraphNode => node !== undefined);
   }
@@ -287,8 +304,21 @@ export class DirectedGraph {
 
     this.assertNodeExists(to);
 
-    // Search the source's outgoing edges for the requested destination.
-    return [...this.outgoing.get(from)!].some((edge) => edge.to === to);
+    return this.outgoing.get(from)!.has(to);
+  }
+  /**
+   * Returns the directed edge from one node to another, if it exists.
+   *
+   * @param from - ID of the source node.
+   * @param to - ID of the destination node.
+   * @returns The shared GraphEdge instance, or `undefined` when no edge exists.
+   * @throws {Error} If either node does not exist in the graph.
+   */
+  getEdge(from: string, to: string): GraphEdge | undefined {
+    this.assertNodeExists(from);
+    this.assertNodeExists(to);
+
+    return this.outgoing.get(from)!.get(to);
   }
   /**
    * Returns the number of nodes currently stored in the graph.
@@ -371,12 +401,12 @@ export class DirectedGraph {
         );
       }
 
-      for (const edge of edges) {
+      for (const [toId, edge] of edges) {
         // Verify that the edge agrees with the adjacency index containing it.
-        if (edge.from !== fromId) {
+        if (edge.from !== fromId || edge.to !== toId) {
           throw new Error(
             `Graph invariant violated: outgoing edge has source "${edge.from}" ` +
-              `but is stored under "${fromId}".`,
+              `and destination "${edge.to}" but is stored under "${fromId}" → "${toId}".`,
           );
         }
 
@@ -389,7 +419,7 @@ export class DirectedGraph {
         }
 
         // The same edge object must exist in the reverse index.
-        if (!this.incoming.get(edge.to)!.has(edge)) {
+        if (this.incoming.get(edge.to)?.get(edge.from) !== edge) {
           throw new Error(
             `Graph invariant violated: outgoing edge "${edge.from}" → "${edge.to}" ` +
               `has no matching incoming relationship.`,
@@ -406,12 +436,12 @@ export class DirectedGraph {
         );
       }
 
-      for (const edge of edges) {
+      for (const [fromId, edge] of edges) {
         // Verify that the edge agrees with the adjacency index containing it.
-        if (edge.to !== toId) {
+        if (edge.to !== toId || edge.from !== fromId) {
           throw new Error(
-            `Graph invariant violated: incoming edge has destination "${edge.to}" ` +
-              `but is stored under "${toId}".`,
+            `Graph invariant violated: incoming edge has source "${edge.from}" ` +
+              `and destination "${edge.to}" but is stored under "${fromId}" → "${toId}".`,
           );
         }
 
@@ -424,7 +454,7 @@ export class DirectedGraph {
         }
 
         // The same edge object must exist in the reverse index.
-        if (!this.outgoing.get(edge.from)!.has(edge)) {
+        if (this.outgoing.get(edge.from)?.get(edge.to) !== edge) {
           throw new Error(
             `Graph invariant violated: incoming edge "${edge.from}" → "${edge.to}" ` +
               `has no matching outgoing relationship.`,

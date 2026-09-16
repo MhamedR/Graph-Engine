@@ -1,7 +1,7 @@
-import {ReactiveComputed} from './reactive-computed.js';
-import {assert} from '../test/assert.js';
-import {ReactiveNode} from './reactive-node.js';
-import {ReactiveRuntime, ReactiveValue} from './index.js';
+import {ReactiveComputed} from '../../src/reactive/reactive-computed.js';
+import {assert} from '../assert.js';
+import {ReactiveNode} from '../../src/reactive/reactive-node.js';
+import {ReactiveRuntime, ReactiveValue} from '../../src/reactive/index.js';
 
 /**
  * Creates a fresh runtime and verifies a basic computed dependency.

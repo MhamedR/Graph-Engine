@@ -16,10 +16,10 @@
  * Node E is isolated and therefore forms its own component.
  */
 
-import {DirectedGraph} from './directed-graph.js';
-import {GraphNode} from './graph-node.js';
-import {stronglyConnectedComponents} from './strongly-connected-components.js';
-import {assert} from '../test/assert.js';
+import {DirectedGraph} from '../../src/graph/directed-graph.js';
+import {GraphNode} from '../../src/graph/graph-node.js';
+import {stronglyConnectedComponents} from '../../src/graph/strongly-connected-components.js';
+import {assert} from '../assert.js';
 
 /**
  * Converts a component into a sorted node-ID string.

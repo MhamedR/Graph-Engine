@@ -1,13 +1,13 @@
-import {ReactiveRuntime} from './reactive-runtime.js';
-import {ReactiveValue} from './reactive-value.js';
-import {assert} from '../test/assert.js';
-import {EffectState, ReactiveEffect} from './reactive-effect.js';
-import {ReactiveNode} from './reactive-node.js';
-import {ManualEffectScheduler} from './manual-effect-scheduler.js';
+import {ReactiveRuntime} from '../../src/reactive/reactive-runtime.js';
+import {ReactiveValue} from '../../src/reactive/reactive-value.js';
+import {assert} from '../assert.js';
+import {EffectState, ReactiveEffect} from '../../src/reactive/reactive-effect.js';
+import {ReactiveNode} from '../../src/reactive/reactive-node.js';
+import {ManualEffectScheduler} from '../../src/reactive/manual-effect-scheduler.js';
 import {
   ReactiveEffectScheduleHandle,
   ReactiveEffectScheduler,
-} from './reactive-scheduler-options.js';
+} from '../../src/reactive/reactive-scheduler-options.js';
 
 /**
  * Verifies that an effect executes and tracks the values it reads.

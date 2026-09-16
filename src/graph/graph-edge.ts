@@ -5,27 +5,13 @@
  *
  *     A ───► B
  *
- * Each edge has:
+ * Each edge has a source, a destination, an identity scoped to the graph that
+ * created it, and a version for the relationship.
  *
- * - a unique identity,
- * - a source node,
- * - a destination node,
- * - a version representing the current state of the relationship.
- *
- * The version will become important when we introduce reactive change
- * detection later in the project.
+ * Graph-owned edges receive IDs from {@link DirectedGraph}. A detached edge
+ * constructed without an ID uses `0`.
  */
 export class GraphEdge {
-  /**
-   * Generates the ID for the next edge created.
-   */
-  private static nextId = 0;
-
-  /**
-   * Unique identity of this edge.
-   */
-  public readonly id: number;
-
   /**
    * Current version of the relationship.
    *
@@ -38,14 +24,14 @@ export class GraphEdge {
    *
    * @param from - ID of the source node.
    * @param to - ID of the destination node.
+   * @param id - Identity of this edge. DirectedGraph assigns per-graph IDs.
+   * Detached edges default to `0`.
    */
   constructor(
     public readonly from: string,
     public readonly to: string,
-  ) {
-    // Assign a unique identity to this relationship.
-    this.id = GraphEdge.nextId++;
-  }
+    public readonly id: number = 0,
+  ) {}
 
   /**
    * Returns the current version of this edge.
@@ -64,7 +50,6 @@ export class GraphEdge {
    * it only records that the version advanced.
    */
   incrementVersion(): void {
-    // Move the relationship to its next version.
     this._version++;
   }
 }

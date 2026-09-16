@@ -54,6 +54,14 @@ export class Queue<T> {
     // Move the head forward so this item is not returned again.
     this.head++;
 
+    // Reclaim drained slots so a long-lived queue cannot grow without bound.
+    if (this.isEmpty()) {
+      this.clear();
+    } else if (this.head > 1024 && this.head * 2 >= this.items.length) {
+      this.items.splice(0, this.head);
+      this.head = 0;
+    }
+
     return item;
   }
 
