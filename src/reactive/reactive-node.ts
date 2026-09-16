@@ -48,6 +48,10 @@ export interface ReactiveNodeState {
  * For now, the node only tracks its identity and version. Dependency
  * relationships and change propagation will be added later.
  */
+/**
+ * Identifies the concrete role of a reactive node in the reactive graph.
+ */
+export type ReactiveNodeKind = 'value' | 'computed' | 'effect';
 export class ReactiveNode {
   /**
    * Current version of the node's value.
@@ -123,8 +127,13 @@ export class ReactiveNode {
    * Creates a reactive node.
    *
    * @param id - Unique identifier for this reactive node.
+   * @param kind - Concrete role represented by this reactive node. Directly
+   * constructed low-level nodes default to `value` for backwards compatibility.
    */
-  constructor(public readonly id: string) {}
+  constructor(
+    public readonly id: string,
+    public readonly kind: ReactiveNodeKind = 'value',
+  ) {}
 
   /**
    * Returns the current version of this node.

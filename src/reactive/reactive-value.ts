@@ -32,7 +32,7 @@ export class ReactiveValue<T> {
     initialValue: T,
     private readonly equals: (previous: T, next: T) => boolean = Object.is,
   ) {
-    this.node = new ReactiveNode(id);
+    this.node = new ReactiveNode(id, 'value');
 
     // Register the value's reactive node with the runtime so it becomes
     // available to runtime-level inspection and diagnostics.

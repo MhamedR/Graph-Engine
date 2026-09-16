@@ -73,7 +73,7 @@ export class ReactiveEffect {
     scheduler?: ReactiveEffectScheduler,
   ) {
     this.scheduler = scheduler ?? runtime.scheduler;
-    this.node = new ReactiveNode(id);
+    this.node = new ReactiveNode(id, 'effect');
     // Register the effect's reactive node with the runtime so the effect
     // participates in runtime-level inspection and diagnostics.
     this.runtime.registerNode(this.node);
