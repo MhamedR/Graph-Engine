@@ -10,7 +10,7 @@ import * as reactiveApi from '../src/reactive/index.js';
 import * as publicApi from '../src/index.js';
 import {
   DirectedGraph,
-  GraphNode,
+  Node,
   ReactiveRuntime,
   ReactiveValue,
   stronglyConnectedComponents,
@@ -40,7 +40,7 @@ import type {
 const GRAPH_RUNTIME_EXPORTS = [
   'DirectedGraph',
   'GraphEdge',
-  'GraphNode',
+  'Node',
   'breadthFirstSearch',
   'depthFirstSearch',
   'getAncestors',
@@ -90,8 +90,8 @@ function exportKey(names: readonly string[]): string {
 function testPublicGraphApi(): void {
   const graph = new DirectedGraph();
 
-  const a = new GraphNode('a', 'A');
-  const b = new GraphNode('b', 'B');
+  const a = new Node('a', 'A');
+  const b = new Node('b', 'B');
 
   graph.addNode(a);
   graph.addNode(b);
@@ -105,7 +105,7 @@ function testPublicGraphApi(): void {
 
   assert(
     components[0]?.length === 2,
-    'package root should expose GraphNode and DirectedGraph correctly',
+    'package root should expose Node and DirectedGraph correctly',
   );
 }
 

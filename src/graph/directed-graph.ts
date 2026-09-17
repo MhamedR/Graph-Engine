@@ -1,14 +1,15 @@
-import {GraphNode} from './graph-node.js';
+import {Node} from './node.js';
 import {GraphEdge} from './graph-edge.js';
 /**
- * Represents a directed graph of {@link GraphNode} instances.
+ * Represents a directed graph of {@link Node} instances.
  *
- * Nodes are uniquely identified by their `id`. Edges are directed and
- * represented internally using both outgoing and incoming adjacency maps.
+ * Nodes are uniquely identified by their `id` and carry a typed payload `T`.
+ * Edges are directed and represented internally using both outgoing and
+ * incoming adjacency maps.
  */
-export class DirectedGraph {
+export class DirectedGraph<T = string> {
   /** All nodes in the graph, indexed by node ID. */
-  private readonly nodes = new Map<string, GraphNode>();
+  private readonly nodes = new Map<string, Node<T>>();
   /**
    * Outgoing adjacency index: source ID → destination ID → edge.
    *
@@ -55,7 +56,7 @@ export class DirectedGraph {
    * @param node - The node to add.
    * @throws {Error} If a node with the same ID already exists.
    */
-  addNode(node: GraphNode): void {
+  addNode(node: Node<T>): void {
     if (this.nodes.has(node.id)) {
       throw new Error(`Node "${node.id}" already exists.`);
     }
@@ -123,7 +124,7 @@ export class DirectedGraph {
    * @param id - The ID of the node to retrieve.
    * @returns The matching node, or `undefined` if it does not exist.
    */
-  getNode(id: string): GraphNode | undefined {
+  getNode(id: string): Node<T> | undefined {
     return this.nodes.get(id);
   }
   /**
@@ -199,12 +200,12 @@ export class DirectedGraph {
    * @returns The source node's direct outgoing neighbors.
    * @throws {Error} If the node does not exist in the graph.
    */
-  getOutgoing(id: string): GraphNode[] {
+  getOutgoing(id: string): Node<T>[] {
     this.assertNodeExists(id);
 
     return [...this.outgoing.get(id)!.values()]
       .map((edge) => this.nodes.get(edge.to))
-      .filter((node): node is GraphNode => node !== undefined);
+      .filter((node): node is Node<T> => node !== undefined);
   }
   /**
    * Returns all nodes that have a direct edge pointing to the given node.
@@ -213,12 +214,12 @@ export class DirectedGraph {
    * @returns The node's direct incoming neighbors.
    * @throws {Error} If the node does not exist in the graph.
    */
-  getIncoming(id: string): GraphNode[] {
+  getIncoming(id: string): Node<T>[] {
     this.assertNodeExists(id);
 
     return [...this.incoming.get(id)!.values()]
       .map((edge) => this.nodes.get(edge.from))
-      .filter((node): node is GraphNode => node !== undefined);
+      .filter((node): node is Node<T> => node !== undefined);
   }
   // ---------------------------------------------------------------------------
   // Graph metrics
@@ -284,7 +285,7 @@ export class DirectedGraph {
    *
    * @returns An array containing every node currently in the graph.
    */
-  getNodes(): GraphNode[] {
+  getNodes(): Node<T>[] {
     // Map.values() gives us an iterator over all registered nodes.
     //
     // Converting it to an array creates a snapshot so callers cannot

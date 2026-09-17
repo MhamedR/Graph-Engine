@@ -28,7 +28,7 @@ import {DirectedGraph} from '../graph/directed-graph.js';
  * @param graph - The directed graph to inspect.
  * @returns `true` if the graph contains at least one directed cycle.
  */
-export function hasCycle(graph: DirectedGraph): boolean {
+export function hasCycle<T>(graph: DirectedGraph<T>): boolean {
   // Nodes that have already been fully explored.
   const visited = new Set<string>();
 

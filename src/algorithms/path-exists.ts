@@ -28,7 +28,7 @@ import {DirectedGraph} from '../graph/directed-graph.js';
  * @returns `true` if a directed path exists from `fromId` to `toId`.
  * @throws {Error} If either node does not exist.
  */
-export function hasPath(graph: DirectedGraph, fromId: string, toId: string): boolean {
+export function hasPath<T>(graph: DirectedGraph<T>, fromId: string, toId: string): boolean {
   // Both nodes must exist before we begin the traversal.
   if (!graph.hasNode(fromId)) {
     throw new Error(`Node "${fromId}" does not exist.`);

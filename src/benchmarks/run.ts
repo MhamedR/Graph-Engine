@@ -8,7 +8,7 @@
 
 import {Queue} from '../data-structures/queue.js';
 import {DirectedGraph} from '../graph/directed-graph.js';
-import {GraphNode} from '../graph/graph-node.js';
+import {Node} from '../graph/node.js';
 import {breadthFirstSearch} from '../algorithms/bfs.js';
 import {ReactiveNode} from '../reactive/reactive-node.js';
 import {ReactiveRuntime} from '../reactive/reactive-runtime.js';
@@ -46,7 +46,7 @@ function graphWithNodes(nodeCount: number): DirectedGraph {
   const graph = new DirectedGraph();
 
   for (let index = 0; index < nodeCount; index++) {
-    graph.addNode(new GraphNode(`n${index}`));
+    graph.addNode(new Node(`n${index}`));
   }
 
   return graph;

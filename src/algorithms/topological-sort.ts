@@ -1,5 +1,5 @@
 import {DirectedGraph} from '../graph/directed-graph.js';
-import {GraphNode} from '../graph/graph-node.js';
+import {Node} from '../graph/node.js';
 import {Queue} from '../data-structures/queue.js';
 
 /**
@@ -37,7 +37,7 @@ import {Queue} from '../data-structures/queue.js';
  * @returns The nodes in topological order.
  * @throws {Error} If the graph contains a cycle.
  */
-export function topologicalSort(graph: DirectedGraph): GraphNode[] {
+export function topologicalSort<T>(graph: DirectedGraph<T>): Node<T>[] {
   // Store the number of remaining incoming edges for every node.
   const inDegree = new Map<string, number>();
 
@@ -48,7 +48,7 @@ export function topologicalSort(graph: DirectedGraph): GraphNode[] {
 
   // Kahn's algorithm needs a FIFO queue of nodes whose dependencies
   // have already been satisfied.
-  const queue = new Queue<GraphNode>();
+  const queue = new Queue<Node<T>>();
 
   // Nodes with zero incoming edges have no dependencies and can be
   // processed immediately.
@@ -59,7 +59,7 @@ export function topologicalSort(graph: DirectedGraph): GraphNode[] {
   }
 
   // Store nodes in the order in which they are processed.
-  const result: GraphNode[] = [];
+  const result: Node<T>[] = [];
 
   // Continue until there are no dependency-free nodes remaining.
   while (!queue.isEmpty()) {

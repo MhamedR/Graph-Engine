@@ -17,7 +17,7 @@
  */
 
 import {DirectedGraph} from '../../src/graph/directed-graph.js';
-import {GraphNode} from '../../src/graph/graph-node.js';
+import {Node} from '../../src/graph/node.js';
 import {stronglyConnectedComponents} from '../../src/graph/strongly-connected-components.js';
 import {assert} from '../assert.js';
 
@@ -27,7 +27,7 @@ import {assert} from '../assert.js';
  * @param component - Component whose IDs should be normalized.
  * @returns Sorted comma-separated node IDs.
  */
-function componentKey(component: GraphNode[]): string {
+function componentKey(component: Node[]): string {
   return component
     .map((node) => node.id)
     .sort()
@@ -41,11 +41,11 @@ function componentKey(component: GraphNode[]): string {
 function testStronglyConnectedComponents(): void {
   const graph = new DirectedGraph();
 
-  const a = new GraphNode('a', 'A');
-  const b = new GraphNode('b', 'B');
-  const c = new GraphNode('c', 'C');
-  const d = new GraphNode('d', 'D');
-  const e = new GraphNode('e', 'E');
+  const a = new Node('a', 'A');
+  const b = new Node('b', 'B');
+  const c = new Node('c', 'C');
+  const d = new Node('d', 'D');
+  const e = new Node('e', 'E');
 
   graph.addNode(a);
   graph.addNode(b);

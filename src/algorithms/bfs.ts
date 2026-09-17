@@ -1,5 +1,5 @@
 import {DirectedGraph} from '../graph/directed-graph.js';
-import {GraphNode} from '../graph/graph-node.js';
+import {Node} from '../graph/node.js';
 import {Queue} from '../data-structures/queue.js';
 
 /**
@@ -29,7 +29,7 @@ import {Queue} from '../data-structures/queue.js';
  * @returns The nodes visited in breadth-first order.
  * @throws {Error} If the starting node does not exist.
  */
-export function breadthFirstSearch(graph: DirectedGraph, startId: string): GraphNode[] {
+export function breadthFirstSearch<T>(graph: DirectedGraph<T>, startId: string): Node<T>[] {
   const startNode = graph.getNode(startId);
 
   if (!startNode) {
@@ -37,13 +37,13 @@ export function breadthFirstSearch(graph: DirectedGraph, startId: string): Graph
   }
 
   // BFS needs a FIFO queue so nodes are processed level by level.
-  const queue = new Queue<GraphNode>();
+  const queue = new Queue<Node<T>>();
 
   // A Set prevents us from visiting the same node more than once.
   const visited = new Set<string>();
 
   // Store the traversal order separately from the queue.
-  const result: GraphNode[] = [];
+  const result: Node<T>[] = [];
 
   // The traversal begins with the starting node.
   queue.enqueue(startNode);

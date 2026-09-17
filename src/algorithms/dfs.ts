@@ -1,5 +1,5 @@
 import {DirectedGraph} from '../graph/directed-graph.js';
-import {GraphNode} from '../graph/graph-node.js';
+import {Node} from '../graph/node.js';
 
 /**
  * Performs a depth-first traversal of a directed graph.
@@ -25,7 +25,7 @@ import {GraphNode} from '../graph/graph-node.js';
  * @returns The nodes visited in depth-first order.
  * @throws {Error} If the starting node does not exist.
  */
-export function depthFirstSearch(graph: DirectedGraph, startId: string): GraphNode[] {
+export function depthFirstSearch<T>(graph: DirectedGraph<T>, startId: string): Node<T>[] {
   // Verify that the requested starting node exists.
   const startNode = graph.getNode(startId);
 
@@ -43,7 +43,7 @@ export function depthFirstSearch(graph: DirectedGraph, startId: string): GraphNo
   const visited = new Set<string>();
 
   // Store the nodes in the order in which DFS visits them.
-  const result: GraphNode[] = [];
+  const result: Node<T>[] = [];
 
   /**
    * Recursively explores the graph from a single node.
@@ -53,7 +53,7 @@ export function depthFirstSearch(graph: DirectedGraph, startId: string): GraphNo
    *
    * @param node - The node currently being explored.
    */
-  function visit(node: GraphNode): void {
+  function visit(node: Node<T>): void {
     // If this node has already been visited, stop here.
     //
     // This protects us from cycles and duplicate paths.

@@ -11,7 +11,7 @@
  */
 
 import {DirectedGraph} from './directed-graph.js';
-import {GraphNode} from './graph-node.js';
+import {Node} from './node.js';
 
 /**
  * Finds all strongly connected components in a directed graph.
@@ -19,23 +19,23 @@ import {GraphNode} from './graph-node.js';
  * @param graph - Directed graph to analyze.
  * @returns Groups of nodes where every node can reach every other node.
  */
-export function stronglyConnectedComponents(graph: DirectedGraph): GraphNode[][] {
+export function stronglyConnectedComponents<T>(graph: DirectedGraph<T>): Node<T>[][] {
   const visited = new Set<string>();
-  const finishOrder: GraphNode[] = [];
+  const finishOrder: Node<T>[] = [];
 
   /**
    * Performs depth-first traversal of the original graph.
    *
    * @param node - Current node.
    */
-  function visit(node: GraphNode): void {
+  function visit(node: Node<T>): void {
     if (visited.has(node.id)) {
       return;
     }
 
     visited.add(node.id);
 
-    // `getOutgoing()` returns destination GraphNode objects directly.
+    // `getOutgoing()` returns destination Node<T> objects directly.
     for (const nextNode of graph.getOutgoing(node.id)) {
       visit(nextNode);
     }
@@ -50,7 +50,7 @@ export function stronglyConnectedComponents(graph: DirectedGraph): GraphNode[][]
   }
 
   // Build the reversed adjacency relation.
-  const reversed = new Map<string, GraphNode[]>();
+  const reversed = new Map<string, Node<T>[]>();
 
   // Initialize an empty reversed adjacency list for every node.
   for (const node of graph.getNodes()) {
@@ -59,7 +59,7 @@ export function stronglyConnectedComponents(graph: DirectedGraph): GraphNode[][]
 
   // Reverse every directed relationship.
   //
-  // `getOutgoing()` already returns the destination GraphNode, so there is
+  // `getOutgoing()` already returns the destination Node<T>, so there is
   // no `edge.to` property to access here.
   for (const node of graph.getNodes()) {
     for (const nextNode of graph.getOutgoing(node.id)) {
@@ -70,7 +70,7 @@ export function stronglyConnectedComponents(graph: DirectedGraph): GraphNode[][]
   // Reset visitation state for the second DFS pass.
   visited.clear();
 
-  const components: GraphNode[][] = [];
+  const components: Node<T>[][] = [];
 
   /**
    * Traverses the reversed graph and collects one component.
@@ -78,7 +78,7 @@ export function stronglyConnectedComponents(graph: DirectedGraph): GraphNode[][]
    * @param node - Current node.
    * @param component - Component currently being collected.
    */
-  function collectComponent(node: GraphNode, component: GraphNode[]): void {
+  function collectComponent(node: Node<T>, component: Node<T>[]): void {
     if (visited.has(node.id)) {
       return;
     }
@@ -98,7 +98,7 @@ export function stronglyConnectedComponents(graph: DirectedGraph): GraphNode[][]
       continue;
     }
 
-    const component: GraphNode[] = [];
+    const component: Node<T>[] = [];
 
     collectComponent(node, component);
 

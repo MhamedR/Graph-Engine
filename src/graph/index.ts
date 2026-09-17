@@ -2,14 +2,14 @@
  * Public graph API.
  *
  * Application API:
- * - DirectedGraph, GraphNode
+ * - DirectedGraph, Node
  * - traversal and analysis functions
  *
  * Advanced API, kept for compatibility:
  * - GraphEdge is stored by DirectedGraph and can be read with getEdge().
  */
 
-export {GraphNode} from './graph-node.js';
+export {Node} from './node.js';
 export {GraphEdge} from './graph-edge.js';
 export {DirectedGraph} from './directed-graph.js';
 

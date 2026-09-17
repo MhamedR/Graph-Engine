@@ -1,5 +1,5 @@
 import {DirectedGraph} from '../graph/directed-graph.js';
-import {GraphNode} from '../graph/graph-node.js';
+import {Node} from '../graph/node.js';
 import {Queue} from '../data-structures/queue.js';
 
 /**
@@ -28,7 +28,7 @@ import {Queue} from '../data-structures/queue.js';
  * @returns All nodes that can reach the target node.
  * @throws {Error} If the target node does not exist.
  */
-export function getAncestors(graph: DirectedGraph, targetId: string): GraphNode[] {
+export function getAncestors<T>(graph: DirectedGraph<T>, targetId: string): Node<T>[] {
   // Make sure the target exists before accessing its incoming neighbors.
   const targetNode = graph.getNode(targetId);
 
@@ -37,13 +37,13 @@ export function getAncestors(graph: DirectedGraph, targetId: string): GraphNode[
   }
 
   // Use our reusable FIFO queue instead of Array.shift().
-  const queue = new Queue<GraphNode>();
+  const queue = new Queue<Node<T>>();
 
   // Track visited nodes so cycles cannot cause infinite traversal.
   const visited = new Set<string>([targetId]);
 
   // Store ancestors in the order in which they are discovered.
-  const result: GraphNode[] = [];
+  const result: Node<T>[] = [];
 
   // The traversal starts at the target and moves backward.
   queue.enqueue(targetNode);

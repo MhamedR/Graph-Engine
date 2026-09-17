@@ -1,6 +1,6 @@
 import {breadthFirstSearch} from './bfs.js';
 import {DirectedGraph} from '../graph/directed-graph.js';
-import {GraphNode} from '../graph/graph-node.js';
+import {Node} from '../graph/node.js';
 
 /**
  * Returns every node that can be reached from a starting node.
@@ -25,7 +25,7 @@ import {GraphNode} from '../graph/graph-node.js';
  * @returns All nodes reachable from the starting node.
  * @throws {Error} If the starting node does not exist.
  */
-export function getReachableNodes(graph: DirectedGraph, startId: string): GraphNode[] {
+export function getReachableNodes<T>(graph: DirectedGraph<T>, startId: string): Node<T>[] {
   // Reuse the shared BFS implementation so reachability stays consistent
   // with breadthFirstSearch and uses Queue instead of Array.shift().
   return breadthFirstSearch(graph, startId).filter((node) => node.id !== startId);

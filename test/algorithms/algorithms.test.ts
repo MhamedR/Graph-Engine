@@ -1,6 +1,6 @@
 import {
   DirectedGraph,
-  GraphNode,
+  Node,
   breadthFirstSearch,
   depthFirstSearch,
   getAncestors,
@@ -19,7 +19,7 @@ function createGraph(ids: string[], edges: Array<[string, string]>): DirectedGra
   const graph = new DirectedGraph();
 
   for (const id of ids) {
-    graph.addNode(new GraphNode(id));
+    graph.addNode(new Node(id));
   }
 
   for (const [from, to] of edges) {
@@ -32,7 +32,7 @@ function createGraph(ids: string[], edges: Array<[string, string]>): DirectedGra
 /**
  * Returns node IDs in the order they appear.
  */
-function idsOf(nodes: GraphNode[]): string[] {
+function idsOf(nodes: Node[]): string[] {
   return nodes.map((node) => node.id);
 }
 

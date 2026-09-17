@@ -1,6 +1,6 @@
 import {DirectedGraph} from '../../src/graph/directed-graph.js';
 import {GraphEdge} from '../../src/graph/graph-edge.js';
-import {GraphNode} from '../../src/graph/graph-node.js';
+import {Node} from '../../src/graph/node.js';
 import {assert} from '../assert.js';
 
 /**
@@ -10,7 +10,7 @@ function graphWithNodes(...ids: string[]): DirectedGraph {
   const graph = new DirectedGraph();
 
   for (const id of ids) {
-    graph.addNode(new GraphNode(id));
+    graph.addNode(new Node(id));
   }
 
   return graph;
@@ -39,13 +39,13 @@ function testEmptyGraph(): void {
  */
 function testAddNode(): void {
   const graph = new DirectedGraph();
-  const node = new GraphNode('a', 'Alpha');
+  const node = new Node('a', 'Alpha');
 
   graph.addNode(node);
 
   assert(graph.hasNode('a'), 'added node should exist');
-  assert(graph.getNode('a') === node, 'getNode should return the same GraphNode instance');
-  assert(graph.getNode('a')?.label === 'Alpha', 'node label should be preserved');
+  assert(graph.getNode('a') === node, 'getNode should return the same Node instance');
+  assert(graph.getNode('a')?.data === 'Alpha', 'node data should be preserved');
   assert(graph.getNodeCount() === 1, 'node count should increase after insertion');
   assert(graph.version === 1, 'adding a node should advance the graph version');
   assert(graph.getOutDegree('a') === 0, 'new node should have out-degree 0');
@@ -54,7 +54,7 @@ function testAddNode(): void {
   let threw = false;
 
   try {
-    graph.addNode(new GraphNode('a'));
+    graph.addNode(new Node('a'));
   } catch (error) {
     threw = error instanceof Error && error.message === 'Node "a" already exists.';
   }
@@ -65,13 +65,26 @@ function testAddNode(): void {
 }
 
 /**
- * Verifies that GraphNode defaults its label to the node ID.
+ * Verifies that Node defaults its data to the node ID.
  */
-function testGraphNodeDefaultLabel(): void {
-  const node = new GraphNode('n1');
+function testNodeDefaultData(): void {
+  const node = new Node('n1');
 
   assert(node.id === 'n1', 'node should retain the provided ID');
-  assert(node.label === 'n1', 'node label should default to the ID');
+  assert(node.data === 'n1', 'node data should default to the ID');
+}
+
+/**
+ * Verifies that a graph preserves a structured node payload.
+ */
+function testTypedNodePayload(): void {
+  const graph = new DirectedGraph<{weight: number}>();
+  const node = new Node('a', {weight: 10});
+
+  graph.addNode(node);
+
+  assert(graph.getNode('a') === node, 'getNode should return the typed Node instance');
+  assert(graph.getNode('a')?.data.weight === 10, 'typed node payload should be preserved');
 }
 
 /**
@@ -365,7 +378,8 @@ function testGetEdgeMissing(): void {
 
 testEmptyGraph();
 testAddNode();
-testGraphNodeDefaultLabel();
+testNodeDefaultData();
+testTypedNodePayload();
 testAddEdge();
 testAddEdgeRequiresExistingNodes();
 testSelfLoop();

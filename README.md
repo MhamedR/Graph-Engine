@@ -10,7 +10,7 @@ The package is ESM-only. The core has no runtime dependencies.
 ```ts
 import {
   DirectedGraph,
-  GraphNode,
+  Node,
   ReactiveComputed,
   ReactiveEffect,
   ReactiveRuntime,
@@ -27,19 +27,23 @@ import {ReactiveRuntime} from 'graph-engine/reactive';
 
 ## Graph
 
-`DirectedGraph` stores nodes by ID and directed edges in bidirectional adjacency maps. Duplicate edges are ignored. Missing-node queries throw. Structural mutations advance `graph.version`.
+`DirectedGraph<T>` stores `Node<T>` instances by ID and directed edges in bidirectional adjacency maps. Duplicate edges are ignored. Missing-node queries throw. Structural mutations advance `graph.version`. The default payload type is `string`; omit the payload to use the node ID.
 
 ```ts
 const graph = new DirectedGraph();
-graph.addNode(new GraphNode('a'));
-graph.addNode(new GraphNode('b'));
-graph.addNode(new GraphNode('c'));
+graph.addNode(new Node('a'));
+graph.addNode(new Node('b'));
+graph.addNode(new Node('c'));
 graph.addEdge('a', 'b');
 graph.addEdge('b', 'c');
 
 graph.hasEdge('a', 'b'); // true
 graph.getEdge('a', 'b')?.id; // 0
 graph.getOutgoing('a').map((node) => node.id); // ['b']
+
+const users = new DirectedGraph<{name: string}>();
+users.addNode(new Node('u1', {name: 'Ada'}));
+users.getNode('u1')?.data.name; // 'Ada'
 ```
 
 Algorithms operate on the public graph API:
@@ -53,7 +57,7 @@ Algorithms operate on the public graph API:
 | `topologicalSort`                         | Kahn sort; throws if the graph contains a cycle                                    |
 | `stronglyConnectedComponents`             | Kosaraju components                                                                |
 
-`GraphEdge` is exported for compatibility. `getEdge(from, to)` returns the shared edge object; other query methods return `GraphNode` instances. Edge IDs are assigned per graph, starting at `0`.
+`GraphEdge` is exported for compatibility. `getEdge(from, to)` returns the shared edge object; other query methods return `Node` instances. Edge IDs are assigned per graph, starting at `0`.
 
 ### Graph complexity
 
