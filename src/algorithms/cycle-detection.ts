@@ -17,13 +17,17 @@ import {DirectedGraph} from '../graph/directed-graph.js';
  *
  *     A → B → C → A
  *
- * This implementation uses depth-first search with two sets:
+ * This implementation uses iterative depth-first search with two sets:
  *
  * - `visited` tracks nodes that have already been completely explored.
- * - `recursionStack` tracks nodes belonging to the current DFS path.
+ * - `onPath` tracks nodes belonging to the current DFS path.
  *
- * Encountering a node already in `recursionStack` means that we found
- * a back edge, which proves that a cycle exists.
+ * Encountering a node already in `onPath` means that we found a back edge,
+ * which proves that a cycle exists.
+ *
+ * Each stack frame is either opening a node or closing it after its
+ * descendants have been processed. That replaces recursive enter/leave
+ * without depending on the JavaScript call stack.
  *
  * @param graph - The directed graph to inspect.
  * @returns `true` if the graph contains at least one directed cycle.
@@ -32,66 +36,63 @@ export function hasCycle<T>(graph: DirectedGraph<T>): boolean {
   // Nodes that have already been fully explored.
   const visited = new Set<string>();
 
-  // Nodes that belong to the current DFS recursion path.
+  // Nodes that belong to the current DFS path.
   //
   // This is different from `visited`.
   //
   // A previously visited node is not necessarily part of the current
   // path, so we need a separate set to detect back edges.
-  const recursionStack = new Set<string>();
-
-  /**
-   * Performs DFS starting from a single node.
-   *
-   * @param nodeId - ID of the node currently being explored.
-   * @returns `true` when a cycle is discovered from this node.
-   */
-  function visit(nodeId: string): boolean {
-    // If the node is already in the current DFS path, we have returned
-    // to an ancestor and therefore discovered a cycle.
-    if (recursionStack.has(nodeId)) {
-      return true;
-    }
-
-    // If the node has already been completely explored, there is no need
-    // to traverse it again.
-    if (visited.has(nodeId)) {
-      return false;
-    }
-
-    // Mark the node as part of the current DFS path.
-    recursionStack.add(nodeId);
-
-    // Explore every outgoing neighbor.
-    for (const neighbor of graph.getOutgoing(nodeId)) {
-      // If any descendant contains a cycle, the whole traversal contains
-      // a cycle, so we can stop immediately.
-      if (visit(neighbor.id)) {
-        return true;
-      }
-    }
-
-    // We are finished exploring this node, so it is no longer part of
-    // the current recursion path.
-    recursionStack.delete(nodeId);
-
-    // Mark the node as completely explored.
-    visited.add(nodeId);
-
-    // No cycle was found through this node.
-    return false;
-  }
+  const onPath = new Set<string>();
 
   // The graph may contain multiple disconnected components, so we must
   // start DFS from every node that has not already been explored.
-  for (const node of graph.getNodes()) {
-    if (visited.has(node.id)) {
+  for (const start of graph.getNodes()) {
+    if (visited.has(start.id)) {
       continue;
     }
 
-    // Stop as soon as a cycle is discovered.
-    if (visit(node.id)) {
-      return true;
+    const stack: Array<{id: string; open: boolean}> = [{id: start.id, open: true}];
+
+    while (stack.length > 0) {
+      const frame = stack.pop()!;
+
+      // Closing a frame means this node has no remaining descendants on
+      // the current path, so it can leave the path and become visited.
+      if (!frame.open) {
+        onPath.delete(frame.id);
+        visited.add(frame.id);
+        continue;
+      }
+
+      // Opening a node that is already on the current path is a back edge.
+      if (onPath.has(frame.id)) {
+        return true;
+      }
+
+      // A finished node cannot participate in a new cycle from this path.
+      if (visited.has(frame.id)) {
+        continue;
+      }
+
+      // Mark the node as part of the current DFS path, then schedule a
+      // close frame so it is removed after its descendants.
+      onPath.add(frame.id);
+      stack.push({id: frame.id, open: false});
+
+      const neighbors = graph.getOutgoing(frame.id);
+
+      for (let index = neighbors.length - 1; index >= 0; index--) {
+        const neighborId = neighbors[index]!.id;
+
+        // A neighbor still on the current path is a back edge.
+        if (onPath.has(neighborId)) {
+          return true;
+        }
+
+        if (!visited.has(neighborId)) {
+          stack.push({id: neighborId, open: true});
+        }
+      }
     }
   }
 

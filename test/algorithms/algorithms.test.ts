@@ -138,11 +138,22 @@ function testCycleDetection(): void {
     ],
   );
 
+  const diamond = createGraph(
+    ['a', 'b', 'c', 'd'],
+    [
+      ['a', 'b'],
+      ['a', 'c'],
+      ['b', 'd'],
+      ['c', 'd'],
+    ],
+  );
+
   assert(!hasCycle(acyclic), 'a chain should be acyclic');
   assert(hasCycle(cyclic), 'a directed loop should be detected as a cycle');
   assert(hasCycle(selfLoop), 'a self-loop should be detected as a cycle');
   assert(!hasCycle(empty), 'an empty graph should be acyclic');
   assert(hasCycle(disconnected), 'a cycle in one component should be detected');
+  assert(!hasCycle(diamond), 'a diamond DAG should be acyclic');
 }
 
 /**
@@ -281,6 +292,31 @@ function testCyclicTraversalTerminates(): void {
   );
 }
 
+/**
+ * Verifies that iterative DFS and cycle detection handle a deep chain
+ * without depending on recursive call-stack depth.
+ */
+function testDeepChainIsIterative(): void {
+  const length = 10_000;
+  const ids = Array.from({length}, (_, index) => `n${index}`);
+  const edges: Array<[string, string]> = [];
+
+  for (let index = 0; index < length - 1; index++) {
+    edges.push([`n${index}`, `n${index + 1}`]);
+  }
+
+  const graph = createGraph(ids, edges);
+  const traversal = depthFirstSearch(graph, 'n0');
+
+  assert(traversal.length === length, 'iterative DFS should visit every node in a deep chain');
+  assert(traversal[0]?.id === 'n0', 'iterative DFS should start at the source of the chain');
+  assert(
+    traversal[length - 1]?.id === `n${length - 1}`,
+    'iterative DFS should finish at the end of the chain',
+  );
+  assert(!hasCycle(graph), 'a deep chain should remain acyclic');
+}
+
 testBreadthFirstSearch();
 testDepthFirstSearch();
 testMissingStartNodeThrows();
@@ -289,3 +325,4 @@ testTopologicalSort();
 testHasPath();
 testReachabilityAncestorsAndDescendants();
 testCyclicTraversalTerminates();
+testDeepChainIsIterative();

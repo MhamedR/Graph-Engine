@@ -17,6 +17,12 @@ import {Node} from '../graph/node.js';
  *
  *     A → B → D → C → E
  *
+ * The traversal is iterative. An explicit stack replaces recursive calls so
+ * a deep graph cannot overflow the JavaScript call stack.
+ *
+ * Neighbors are pushed in reverse adjacency order so the first outgoing
+ * neighbor is explored first, matching a left-to-right recursive DFS.
+ *
  * A Set is used to track visited nodes. This prevents cycles from causing
  * the traversal to visit the same node indefinitely.
  *
@@ -45,20 +51,18 @@ export function depthFirstSearch<T>(graph: DirectedGraph<T>, startId: string): N
   // Store the nodes in the order in which DFS visits them.
   const result: Node<T>[] = [];
 
-  /**
-   * Recursively explores the graph from a single node.
-   *
-   * The recursive call creates the "depth-first" behavior:
-   * we completely explore one neighbor before moving to the next.
-   *
-   * @param node - The node currently being explored.
-   */
-  function visit(node: Node<T>): void {
-    // If this node has already been visited, stop here.
+  // Explicit LIFO stack. Array.pop() is O(1), so this is the iterative
+  // equivalent of a recursive call stack.
+  const stack: Node<T>[] = [startNode];
+
+  while (stack.length > 0) {
+    const node = stack.pop()!;
+
+    // If this node has already been visited, skip it.
     //
     // This protects us from cycles and duplicate paths.
     if (visited.has(node.id)) {
-      return;
+      continue;
     }
 
     // Mark the node as visited before exploring its neighbors.
@@ -67,15 +71,18 @@ export function depthFirstSearch<T>(graph: DirectedGraph<T>, startId: string): N
     // Record the node in traversal order.
     result.push(node);
 
-    // Explore each outgoing neighbor recursively.
-    for (const neighbor of graph.getOutgoing(node.id)) {
-      visit(neighbor);
+    const neighbors = graph.getOutgoing(node.id);
+
+    // Push neighbors from last to first so the first adjacency is popped
+    // next. That preserves the same preorder as a recursive DFS.
+    for (let index = neighbors.length - 1; index >= 0; index--) {
+      const neighbor = neighbors[index]!;
+
+      if (!visited.has(neighbor.id)) {
+        stack.push(neighbor);
+      }
     }
   }
 
-  // Start the recursive traversal from the requested node.
-  visit(startNode);
-
-  // Return the complete DFS traversal order.
   return result;
 }

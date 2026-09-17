@@ -8,6 +8,9 @@
  *
  * Each traversal of the reversed graph produces one strongly connected
  * component.
+ *
+ * Both DFS passes are iterative. Explicit stacks replace recursive calls
+ * so a deep graph cannot overflow the JavaScript call stack.
  */
 
 import {DirectedGraph} from './directed-graph.js';
@@ -23,30 +26,45 @@ export function stronglyConnectedComponents<T>(graph: DirectedGraph<T>): Node<T>
   const visited = new Set<string>();
   const finishOrder: Node<T>[] = [];
 
-  /**
-   * Performs depth-first traversal of the original graph.
-   *
-   * @param node - Current node.
-   */
-  function visit(node: Node<T>): void {
-    if (visited.has(node.id)) {
-      return;
+  // First pass: iterative DFS that records each node after its descendants
+  // have finished. That produces the finishing times Kosaraju needs.
+  for (const start of graph.getNodes()) {
+    if (visited.has(start.id)) {
+      continue;
     }
 
-    visited.add(node.id);
+    const stack: Array<{node: Node<T>; expanded: boolean}> = [{node: start, expanded: false}];
 
-    // `getOutgoing()` returns destination Node<T> objects directly.
-    for (const nextNode of graph.getOutgoing(node.id)) {
-      visit(nextNode);
+    while (stack.length > 0) {
+      const frame = stack[stack.length - 1]!;
+
+      if (!frame.expanded) {
+        if (visited.has(frame.node.id)) {
+          stack.pop();
+          continue;
+        }
+
+        visited.add(frame.node.id);
+        frame.expanded = true;
+
+        const neighbors = graph.getOutgoing(frame.node.id);
+
+        // Push neighbors in reverse so the first adjacency is explored
+        // first, matching a left-to-right recursive DFS.
+        for (let index = neighbors.length - 1; index >= 0; index--) {
+          const neighbor = neighbors[index]!;
+
+          if (!visited.has(neighbor.id)) {
+            stack.push({node: neighbor, expanded: false});
+          }
+        }
+
+        continue;
+      }
+
+      stack.pop();
+      finishOrder.push(frame.node);
     }
-
-    // Record the node after all descendants have finished.
-    finishOrder.push(node);
-  }
-
-  // First pass: calculate DFS finishing order.
-  for (const node of graph.getNodes()) {
-    visit(node);
   }
 
   // Build the reversed adjacency relation.
@@ -72,35 +90,36 @@ export function stronglyConnectedComponents<T>(graph: DirectedGraph<T>): Node<T>
 
   const components: Node<T>[][] = [];
 
-  /**
-   * Traverses the reversed graph and collects one component.
-   *
-   * @param node - Current node.
-   * @param component - Component currently being collected.
-   */
-  function collectComponent(node: Node<T>, component: Node<T>[]): void {
-    if (visited.has(node.id)) {
-      return;
-    }
-
-    visited.add(node.id);
-    component.push(node);
-
-    // Follow reversed edges to discover nodes in the same SCC.
-    for (const previous of reversed.get(node.id) ?? []) {
-      collectComponent(previous, component);
-    }
-  }
-
-  // Second pass: process nodes in reverse finishing order.
+  // Second pass: iterative DFS over reversed edges, processing nodes in
+  // reverse finishing order. Each traversal collects one component.
   for (const node of [...finishOrder].reverse()) {
     if (visited.has(node.id)) {
       continue;
     }
 
     const component: Node<T>[] = [];
+    const stack: Node<T>[] = [node];
 
-    collectComponent(node, component);
+    while (stack.length > 0) {
+      const current = stack.pop()!;
+
+      if (visited.has(current.id)) {
+        continue;
+      }
+
+      visited.add(current.id);
+      component.push(current);
+
+      const previousNodes = reversed.get(current.id) ?? [];
+
+      for (let index = previousNodes.length - 1; index >= 0; index--) {
+        const previous = previousNodes[index]!;
+
+        if (!visited.has(previous.id)) {
+          stack.push(previous);
+        }
+      }
+    }
 
     components.push(component);
   }
