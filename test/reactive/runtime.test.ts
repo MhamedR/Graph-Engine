@@ -520,13 +520,7 @@ function testRuntimeDotDirtyState(): void {
   // Changing the producer should invalidate the computed node.
   source.value = 2;
 
-  // Export the graph while the computed node is dirty.
-  const dot = runtime.toDot();
-
-  assert(
-    dot.includes('dirty=true'),
-    'DOT output should mark the invalidated computed node as dirty',
-  );
+  assert(doubled.node.dirty, 'computed node should be dirty after its dependency changes');
 }
 
 /**
@@ -920,39 +914,6 @@ function testRuntimeInspection(): void {
 }
 
 /**
- * Verifies that the runtime can export the current reactive graph as
- * Graphviz DOT with nodes and dependency edges.
- */
-function testRuntimeDotExport(): void {
-  // Create a fresh runtime for the DOT export test.
-  const runtime = new ReactiveRuntime();
-
-  // Create a source value and a computed node depending on it.
-  const source = new ReactiveValue(runtime, 'source', 1);
-  const computed = new ReactiveComputed(runtime, 'computed', () => source.value * 2);
-
-  // Evaluate the computed value so the dependency edge is established.
-  assert(computed.value === 2, 'Computed value should equal 2.');
-
-  // Export the reactive graph as Graphviz DOT.
-  const dot = runtime.toDot();
-
-  // The output should declare a directed Graphviz graph.
-  assert(dot.includes('digraph'), 'DOT output should declare a directed graph.');
-
-  // Both reactive nodes should appear in the output.
-  assert(dot.includes('"source"'), 'DOT output should contain the source node.');
-
-  assert(dot.includes('"computed"'), 'DOT output should contain the computed node.');
-
-  // The dependency relationship should appear as a directed edge.
-  assert(
-    dot.includes('"source" -> "computed"'),
-    'DOT output should contain the source -> computed edge.',
-  );
-}
-
-/**
  * Verifies that disposing a computed node removes it from the runtime and
  * disconnects its dependency relationships.
  */
@@ -1337,7 +1298,6 @@ testGraphSnapshotDiff();
 testGraphMetrics();
 testRuntimeInspection();
 testRuntimeDescription();
-testRuntimeDotExport();
 testRuntimeDotDirtyState();
 testDisposeNode();
 testRuntimeDisposePreventsRegistration();
@@ -1348,7 +1308,6 @@ testRuntimeRemainsUsableAfterBatchError();
 testGraphSnapshotContainsDependencies();
 testGraphSnapshotDiffDetectsAddedEdge();
 testGraphSnapshotDiffDetectsRemovedEdge();
-testRuntimeDotExport();
 testComputedDisposal();
 testComputedDisposalIsIdempotent();
 testDisposedComputedCannotBeRead();

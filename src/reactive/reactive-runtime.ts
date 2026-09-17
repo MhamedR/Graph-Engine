@@ -732,39 +732,4 @@ export class ReactiveRuntime {
 
     return lines.join('\n');
   }
-  /**
-   * Exports the current reactive dependency graph as Graphviz DOT text.
-   *
-   * Node labels include the current version and dirty state so the exported
-   * graph can be used for debugging as well as structural visualization.
-   *
-   * @returns Graphviz DOT representation of the current reactive graph.
-   */
-  toDot(): string {
-    // Capture the graph once so the exported structure is internally consistent.
-    const graph = this.createGraphSnapshot();
-
-    const lines: string[] = [];
-
-    lines.push('digraph ReactiveGraph {');
-
-    // Declare every registered node with diagnostic state information.
-    for (const node of graph.nodes) {
-      const label = `${node.id}\\n` + `version=${node.version}\\n` + `dirty=${node.dirty}`;
-
-      // Highlight dirty nodes so invalidated parts of the graph are easy to see.
-      const style = node.dirty ? 'style=filled' : 'style=solid';
-
-      lines.push(`  "${node.id}" [label="${label}", ${style}];`);
-    }
-
-    // Declare every dependency as a directed producer-to-consumer edge.
-    for (const edge of graph.edges) {
-      lines.push(`  "${edge.producerId}" -> "${edge.consumerId}";`);
-    }
-
-    lines.push('}');
-
-    return lines.join('\n');
-  }
 }
