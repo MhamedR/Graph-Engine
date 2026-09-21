@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "..",
+    "outDir": "./dist"
+  },
+  "include": ["index.ts", "../graph/**/*.ts", "../reactive/**/*.ts", "../data-structures/**/*.ts"],
+  "exclude": ["../**/test/**", "../**/dist/**", "node_modules"]
+}

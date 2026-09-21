@@ -7,6 +7,8 @@ A framework-agnostic TypeScript library with two related subsystems:
 
 The package is ESM-only. The core has no runtime dependencies.
 
+This repository is an npm workspace. Internal packages live under `packages/`. The published package is `graph-engine`.
+
 ```ts
 import {
   DirectedGraph,
@@ -135,9 +137,9 @@ Diagnostics (`inspect()`, `createGraphSnapshot()`, `toDot()`) are for debugging,
 ## Scripts
 
 ```bash
-npm test          # correctness suite in test/, mirroring src/
+npm test          # correctness suite (package tests + public API)
 npm run typecheck
-npm run build     # production emit, tests excluded
+npm run build     # production emit of packages/graph-engine, tests excluded
 npm run ci        # typecheck + test + build
 npm run bench     # local performance baseline
 ```

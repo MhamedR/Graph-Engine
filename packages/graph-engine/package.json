@@ -1,0 +1,37 @@
+{
+  "name": "graph-engine",
+  "version": "1.0.0",
+  "description": "Framework-agnostic directed graph and reactive engine for TypeScript.",
+  "type": "module",
+  "main": "./dist/graph-engine/index.js",
+  "types": "./dist/graph-engine/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/graph-engine/index.d.ts",
+      "import": "./dist/graph-engine/index.js"
+    },
+    "./graph": {
+      "types": "./dist/graph/index.d.ts",
+      "import": "./dist/graph/index.js"
+    },
+    "./reactive": {
+      "types": "./dist/reactive/index.d.ts",
+      "import": "./dist/reactive/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MhamedR/Graph-Engine.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/MhamedR/Graph-Engine/issues"
+  },
+  "homepage": "https://github.com/MhamedR/Graph-Engine#readme"
+}

@@ -1,47 +1,31 @@
 {
-  "name": "graph-engine",
-  "version": "1.0.0",
-  "description": "Framework-agnostic directed graph and reactive engine for TypeScript.",
+  "name": "graph-engine-workspace",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Workspace for the graph-engine TypeScript packages.",
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
-    },
-    "./graph": {
-      "types": "./dist/graph/index.d.ts",
-      "import": "./dist/graph/index.js"
-    },
-    "./reactive": {
-      "types": "./dist/reactive/index.d.ts",
-      "import": "./dist/reactive/index.js"
-    }
-  },
-  "files": [
-    "dist"
+  "workspaces": [
+    "packages/*"
   ],
-  "sideEffects": false,
   "scripts": {
-    "dev": "tsx src/index.ts",
-    "clean": "rm -rf dist",
-    "build": "npm run clean && tsc -p tsconfig.build.json",
+    "dev": "tsx packages/graph-engine/index.ts",
+    "clean": "rm -rf dist packages/graph-engine/dist",
+    "build": "npm run clean && tsc -p packages/graph-engine/tsconfig.build.json",
     "typecheck": "tsc --noEmit && tsc --noEmit -p test/tsconfig.json",
-    "start": "node dist/index.js",
-    "test:queue": "tsx test/data-structures/queue.test.ts",
-    "test:graph": "tsx test/graph/directed-graph.test.ts && tsx test/graph/strongly-connected-components.test.ts",
-    "test:algorithms": "tsx test/algorithms/algorithms.test.ts",
+    "start": "node packages/graph-engine/dist/graph-engine/index.js",
+    "test:queue": "tsx packages/data-structures/test/queue.test.ts",
+    "test:graph": "tsx packages/graph/test/directed-graph.test.ts && tsx packages/graph/test/strongly-connected-components.test.ts",
+    "test:algorithms": "tsx packages/graph/test/algorithms.test.ts",
     "test:public": "tsx test/public-api.test.ts",
-    "test:reactive": "tsx test/reactive/computed.test.ts",
-    "test:dynamic": "tsx test/reactive/dynamic.test.ts",
-    "test:scheduler": "tsx test/reactive/scheduler.test.ts",
-    "test:runtime": "tsx test/reactive/runtime.test.ts",
-    "test:effect": "tsx test/reactive/effect.test.ts",
-    "test:errors": "tsx test/reactive/error-contracts.test.ts",
-    "test:integration": "tsx test/reactive/integration.test.ts",
+    "test:reactive": "tsx packages/reactive/test/computed.test.ts",
+    "test:dynamic": "tsx packages/reactive/test/dynamic.test.ts",
+    "test:scheduler": "tsx packages/reactive/test/scheduler.test.ts",
+    "test:runtime": "tsx packages/reactive/test/runtime.test.ts",
+    "test:effect": "tsx packages/reactive/test/effect.test.ts",
+    "test:errors": "tsx packages/reactive/test/error-contracts.test.ts",
+    "test:integration": "tsx packages/reactive/test/integration.test.ts",
     "test": "npm run test:queue && npm run test:graph && npm run test:algorithms && npm run test:public && npm run test:reactive && npm run test:dynamic && npm run test:scheduler && npm run test:runtime && npm run test:effect && npm run test:errors && npm run test:integration",
-    "bench": "tsx src/benchmarks/run.ts",
+    "bench": "tsx benchmarks/run.ts",
     "ci": "npm run typecheck && npm test && npm run build",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
@@ -50,17 +34,7 @@
   "lint-staged": {
     "*.{ts,js,json,md}": "prettier --write"
   },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/MhamedR/Graph-Engine.git"
-  },
-  "keywords": [],
-  "author": "",
   "license": "ISC",
-  "bugs": {
-    "url": "https://github.com/MhamedR/Graph-Engine/issues"
-  },
-  "homepage": "https://github.com/MhamedR/Graph-Engine#readme",
   "devDependencies": {
     "@types/node": "^26.5.0",
     "husky": "^9.1.7",

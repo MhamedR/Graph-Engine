@@ -5,16 +5,16 @@
  * so accidental export changes are caught as compatibility breaks.
  */
 
-import * as graphApi from '../src/graph/index.js';
-import * as reactiveApi from '../src/reactive/index.js';
-import * as publicApi from '../src/index.js';
+import * as graphApi from '../packages/graph/index.js';
+import * as reactiveApi from '../packages/reactive/index.js';
+import * as publicApi from '../packages/graph-engine/index.js';
 import {
   DirectedGraph,
   Node,
   ReactiveRuntime,
   ReactiveValue,
   stronglyConnectedComponents,
-} from '../src/index.js';
+} from '../packages/graph-engine/index.js';
 import {assert} from './assert.js';
 
 /**
@@ -32,7 +32,7 @@ import type {
   ReactiveNodeInspection,
   ReactiveRuntimeInspection,
   ReactiveRuntimeState,
-} from '../src/index.js';
+} from '../packages/graph-engine/index.js';
 
 /**
  * Runtime values exported by the graph public entry point.

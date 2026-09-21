@@ -1,5 +1,5 @@
 {
-  "extends": "../tsconfig.json",
+  "extends": "../tsconfig.base.json",
   "compilerOptions": {
     "rootDir": "..",
     "noEmit": true,
@@ -7,6 +7,6 @@
     "declarationMap": false,
     "sourceMap": false
   },
-  "include": ["./**/*.ts", "../src/**/*.ts"],
-  "exclude": ["../node_modules", "../dist"]
+  "include": ["./**/*.ts", "../packages/**/*.ts"],
+  "exclude": ["../node_modules", "../**/dist/**"]
 }
