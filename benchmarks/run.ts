@@ -8,12 +8,8 @@
 
 import {Queue} from '../packages/data-structures/index.js';
 import {DirectedGraph, Node, breadthFirstSearch} from '../packages/graph/index.js';
-import {
-  ReactiveNode,
-  ReactiveRuntime,
-  ReactiveValue,
-  ReactiveComputed,
-} from '../packages/reactive/index.js';
+import {ReactiveRuntime, ReactiveValue, ReactiveComputed} from '../packages/reactive/index.js';
+import {ReactiveNode} from '../packages/reactive/advanced.js';
 
 /**
  * One reported benchmark result.

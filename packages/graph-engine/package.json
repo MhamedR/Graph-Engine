@@ -8,27 +8,54 @@
   "exports": {
     ".": {
       "types": "./dist/graph-engine/index.d.ts",
-      "import": "./dist/graph-engine/index.js"
+      "import": "./dist/graph-engine/index.js",
+      "default": "./dist/graph-engine/index.js"
     },
     "./graph": {
       "types": "./dist/graph/index.d.ts",
-      "import": "./dist/graph/index.js"
+      "import": "./dist/graph/index.js",
+      "default": "./dist/graph/index.js"
     },
     "./reactive": {
       "types": "./dist/reactive/index.d.ts",
-      "import": "./dist/reactive/index.js"
+      "import": "./dist/reactive/index.js",
+      "default": "./dist/reactive/index.js"
+    },
+    "./advanced": {
+      "types": "./dist/graph-engine/advanced.d.ts",
+      "import": "./dist/graph-engine/advanced.js",
+      "default": "./dist/graph-engine/advanced.js"
     }
   },
   "files": [
+    "CHANGELOG.md",
+    "LICENSE",
+    "README.md",
     "dist"
   ],
   "sideEffects": false,
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "prepack": "npm --prefix ../.. run build"
+  },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/MhamedR/Graph-Engine.git"
+    "url": "git+https://github.com/MhamedR/Graph-Engine.git",
+    "directory": "packages/graph-engine"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "directed-graph",
+    "reactivity",
+    "signals",
+    "dependency-graph",
+    "typescript"
+  ],
   "license": "ISC",
   "bugs": {
     "url": "https://github.com/MhamedR/Graph-Engine/issues"

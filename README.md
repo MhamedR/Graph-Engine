@@ -5,9 +5,13 @@ A framework-agnostic TypeScript library with two related subsystems:
 - a directed graph with traversal and analysis algorithms
 - a push/pull reactive runtime (values, computeds, effects, batching, scheduling)
 
-The package is ESM-only. The core has no runtime dependencies.
+The package is ESM-only, supports Node.js 20 and newer, and has no runtime dependencies.
 
 This repository is an npm workspace. Internal packages live under `packages/`. The published package is `graph-engine`.
+
+```bash
+npm install graph-engine
+```
 
 ```ts
 import {
@@ -132,10 +136,16 @@ runtime.flush(); // seen === [2, 10]
 
 ## Advanced API
 
-These remain exported for compatibility, but application code should rarely use them directly:
+These low-level types remain available, but application code should rarely use them directly:
 
 - `ReactiveNode`, `ReactiveLink`, `ReactiveContext`, `Epoch`
 - `GraphEdge`
+
+Low-level reactive primitives use the explicit advanced entry point:
+
+```ts
+import {ReactiveNode} from 'graph-engine/advanced';
+```
 
 Diagnostics (`inspect()`, `createGraphSnapshot()`) are for debugging, not the hot path.
 
@@ -143,9 +153,12 @@ Diagnostics (`inspect()`, `createGraphSnapshot()`) are for debugging, not the ho
 
 ```bash
 npm test          # correctness suite (package tests + public API)
+npm run test:coverage
 npm run typecheck
+npm run lint
 npm run build     # production emit of packages/graph-engine, tests excluded
-npm run ci        # typecheck + test + build
+npm run package:smoke
+npm run ci        # lint + format + types + coverage + build + package smoke
 npm run bench     # local performance baseline
 ```
 

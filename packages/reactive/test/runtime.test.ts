@@ -618,7 +618,11 @@ function testBatchCoalescesEffectRuns(): void {
     assert(runs === 1, 'effect should not run during a batch');
   });
 
-  assert(runs === 2, 'effect should run once after the batch completes');
+  assert(runs === 1, 'batch completion should schedule rather than execute the effect');
+  assert(runtime.scheduler.pendingCount === 1, 'batched changes should schedule one effect run');
+
+  runtime.flush();
+  assert(runs === 2, 'the scheduled batched effect should execute once');
 }
 
 /**
@@ -651,7 +655,10 @@ function testNestedBatchesDeferUntilOuterBatchCompletes(): void {
     assert(runs === 1, 'effect should remain deferred until the outer batch completes');
   });
 
-  assert(runs === 2, 'effect should run once after the outermost batch completes');
+  assert(runs === 1, 'outer batch completion should only schedule the effect');
+
+  runtime.flush();
+  assert(runs === 2, 'the nested batch should produce one effect run when flushed');
 }
 
 /**
@@ -677,7 +684,10 @@ function testBatchEffectSeesFinalValue(): void {
     source.value = 4;
   });
 
-  assert(observedValue === 4, 'effect should observe the final value after the batch');
+  assert(observedValue === 1, 'the effect should not execute before a scheduler flush');
+
+  runtime.flush();
+  assert(observedValue === 4, 'effect should observe the final batched value when flushed');
 }
 
 /**
@@ -1281,6 +1291,9 @@ testRuntimeDescription();
 testDisposeNode();
 testRuntimeDisposePreventsRegistration();
 testRuntimeDisposeClearsState();
+testBatchCoalescesEffectRuns();
+testNestedBatchesDeferUntilOuterBatchCompletes();
+testBatchEffectSeesFinalValue();
 testBatchErrorPropagates();
 testBatchErrorRestoresBatchState();
 testRuntimeRemainsUsableAfterBatchError();

@@ -8,6 +8,7 @@
 import * as graphApi from '../packages/graph/index.js';
 import * as reactiveApi from '../packages/reactive/index.js';
 import * as publicApi from '../packages/graph-engine/index.js';
+import * as advancedApi from '../packages/graph-engine/advanced.js';
 import {
   DirectedGraph,
   Node,
@@ -15,6 +16,7 @@ import {
   ReactiveValue,
   stronglyConnectedComponents,
 } from '../packages/graph-engine/index.js';
+import type {ReactiveNodeKind, ReactiveNodeState} from '../packages/graph-engine/advanced.js';
 import {assert} from './assert.js';
 
 /**
@@ -56,17 +58,20 @@ const GRAPH_RUNTIME_EXPORTS = [
  * Runtime values exported by the reactive public entry point.
  */
 const REACTIVE_RUNTIME_EXPORTS = [
-  'Epoch',
   'ManualEffectScheduler',
   'ReactiveComputed',
-  'ReactiveContext',
   'ReactiveEffect',
-  'ReactiveLink',
-  'ReactiveNode',
   'ReactiveRuntime',
   'ReactiveScheduler',
   'ReactiveValue',
   'diffReactiveGraphSnapshots',
+] as const;
+
+const ADVANCED_RUNTIME_EXPORTS = [
+  'Epoch',
+  'ReactiveContext',
+  'ReactiveLink',
+  'ReactiveNode',
 ] as const;
 
 /**
@@ -139,6 +144,11 @@ function testPublicRuntimeExportFreeze(): void {
     runtimeExportNames(publicApi).join(',') === expectedRootExports,
     'package root should re-export exactly the graph and reactive public surfaces',
   );
+
+  assert(
+    runtimeExportNames(advancedApi).join(',') === exportKey(ADVANCED_RUNTIME_EXPORTS),
+    'advanced subpath should expose exactly the low-level reactive primitives',
+  );
 }
 
 /**
@@ -159,6 +169,8 @@ function testPublicTypeExports(): void {
         ReactiveNodeInspection,
         ReactiveRuntimeInspection,
         ReactiveRuntimeState,
+        ReactiveNodeKind,
+        ReactiveNodeState,
       ]
     | undefined = undefined;
 

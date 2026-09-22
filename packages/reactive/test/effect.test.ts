@@ -3396,7 +3396,6 @@ testDestroyedEffectGraphIsolation();
 testDisposeCleansAllDependencies();
 testNodeClearProducers();
 testNodeClearConsumers();
-testNodeClearProducers();
 testNodeClearDependencies();
 testNodeClearDependenciesInChain();
 testNodeRelationshipConsistency();

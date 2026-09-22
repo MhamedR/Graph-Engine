@@ -569,7 +569,7 @@ export class ReactiveNode {
     const nextProducers = new Set(this.activeProducers);
 
     // Remove dependencies that were not used during this computation.
-    for (const link of [...this.producers.values()]) {
+    for (const link of this.producers.values()) {
       if (!nextProducers.has(link.producer)) {
         this.removeProducer(link.producer);
       }

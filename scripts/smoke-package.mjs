@@ -1,0 +1,124 @@
+import {mkdtemp, rm, writeFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {dirname, join} from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {spawnSync} from 'node:child_process';
+
+const root = dirname(dirname(fileURLToPath(import.meta.url)));
+const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+const temporaryDirectory = await mkdtemp(join(tmpdir(), 'graph-engine-smoke-'));
+
+function run(command, arguments_, cwd) {
+  const result = spawnSync(command, arguments_, {
+    cwd,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+
+  if (result.status !== 0) {
+    throw new Error(
+      [`Command failed: ${command} ${arguments_.join(' ')}`, result.stdout, result.stderr]
+        .filter(Boolean)
+        .join('\n'),
+    );
+  }
+
+  return result.stdout;
+}
+
+try {
+  const packOutput = run(
+    npm,
+    ['pack', '--workspace', 'graph-engine', '--pack-destination', temporaryDirectory, '--json'],
+    root,
+  );
+  const [packed] = JSON.parse(packOutput);
+
+  if (packed === undefined || typeof packed.filename !== 'string') {
+    throw new Error('npm pack did not report a tarball filename.');
+  }
+
+  const tarball = join(temporaryDirectory, packed.filename);
+  await writeFile(
+    join(temporaryDirectory, 'package.json'),
+    JSON.stringify({private: true, type: 'module'}, undefined, 2),
+  );
+  run(npm, ['install', '--ignore-scripts', '--no-audit', '--no-fund', tarball], temporaryDirectory);
+
+  await writeFile(
+    join(temporaryDirectory, 'consumer.mjs'),
+    `
+import {DirectedGraph, Node, ReactiveComputed, ReactiveRuntime, ReactiveValue} from 'graph-engine';
+import {hasPath} from 'graph-engine/graph';
+import {ManualEffectScheduler} from 'graph-engine/reactive';
+import {ReactiveNode} from 'graph-engine/advanced';
+
+const graph = new DirectedGraph();
+graph.addNode(new Node('a'));
+graph.addNode(new Node('b'));
+graph.addEdge('a', 'b');
+
+const runtime = new ReactiveRuntime();
+const source = new ReactiveValue(runtime, 'source', 2);
+const doubled = new ReactiveComputed(runtime, 'doubled', () => source.value * 2);
+
+if (!hasPath(graph, 'a', 'b') || doubled.value !== 4) {
+  throw new Error('Packed public API smoke test failed.');
+}
+
+if (!(new ManualEffectScheduler()) || !(new ReactiveNode('advanced'))) {
+  throw new Error('Packed subpath smoke test failed.');
+}
+`,
+  );
+  run(process.execPath, ['consumer.mjs'], temporaryDirectory);
+
+  await writeFile(
+    join(temporaryDirectory, 'consumer.ts'),
+    `
+import {DirectedGraph, Node, ReactiveRuntime, ReactiveValue} from 'graph-engine';
+import type {ReactiveRuntimeInspection} from 'graph-engine/reactive';
+import type {ReactiveNodeKind} from 'graph-engine/advanced';
+
+const graph = new DirectedGraph<{name: string}>();
+graph.addNode(new Node('user', {name: 'Ada'}));
+
+const runtime = new ReactiveRuntime();
+const value = new ReactiveValue(runtime, 'value', 1);
+const inspection: ReactiveRuntimeInspection = runtime.inspect();
+const kind: ReactiveNodeKind = value.node.kind;
+
+void graph;
+void inspection;
+void kind;
+`,
+  );
+  await writeFile(
+    join(temporaryDirectory, 'tsconfig.json'),
+    JSON.stringify(
+      {
+        compilerOptions: {
+          strict: true,
+          noEmit: true,
+          target: 'ES2022',
+          module: 'NodeNext',
+          moduleResolution: 'NodeNext',
+        },
+        include: ['consumer.ts'],
+      },
+      undefined,
+      2,
+    ),
+  );
+  run(
+    process.execPath,
+    [join(root, 'node_modules/typescript/bin/tsc'), '--project', 'tsconfig.json'],
+    temporaryDirectory,
+  );
+
+  console.log(
+    `Packed graph-engine smoke test passed (${packed.size} bytes packed, ${packed.unpackedSize} bytes unpacked).`,
+  );
+} finally {
+  await rm(temporaryDirectory, {recursive: true, force: true});
+}

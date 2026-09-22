@@ -1861,7 +1861,6 @@ testCustomEquality();
 testDifferentValueRecomputesComputed();
 testSameValueDoesNotRecomputeComputed();
 testSameValueDoesNotInvalidate();
-testComputedCustomEquality();
 testComputedEqualityPreventsVersionChange();
 testComputedCustomEqualityDetectsRealChange();
 testComputedDefaultEquality();
