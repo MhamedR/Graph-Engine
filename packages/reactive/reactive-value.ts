@@ -36,7 +36,7 @@ export class ReactiveValue<T> {
 
     // Register the value's reactive node with the runtime so it becomes
     // available to runtime-level inspection and diagnostics.
-    this.runtime.registerNode(this.node);
+    this.runtime.registerNode(this.node, () => this.dispose());
 
     // Store the initial application value separately from the reactive node.
     this._value = initialValue;
@@ -71,11 +71,7 @@ export class ReactiveValue<T> {
     }
 
     // Register this value as a dependency of the currently active consumer.
-    const consumer = this.runtime.context.activeConsumer;
-
-    if (consumer !== undefined) {
-      consumer.trackProducer(this.node);
-    }
+    this.runtime.trackRead(this.node);
 
     // Return the current stored value.
     return this._value;

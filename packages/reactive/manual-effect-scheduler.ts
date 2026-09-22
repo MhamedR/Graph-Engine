@@ -12,6 +12,7 @@ import {
  */
 export class ManualEffectScheduler implements ReactiveEffectScheduler {
   private readonly tasks: Array<() => void> = [];
+  private _flushing = false;
 
   /**
    * Adds an effect task to the pending queue.
@@ -59,25 +60,37 @@ export class ManualEffectScheduler implements ReactiveEffectScheduler {
    * @throws {unknown} The first error thrown by a scheduled task.
    */
   flush(): void {
+    if (this._flushing) {
+      throw new Error('Manual effect scheduler cannot be flushed recursively.');
+    }
+
     // Capture the current batch so tasks scheduled during execution remain
     // queued for the next flush cycle.
     const batch = this.tasks.splice(0);
 
     // Remember the first task error without interrupting the remaining tasks.
     let firstError: unknown;
+    let hasError = false;
 
-    // Execute every task that was pending when the flush started.
-    for (const task of batch) {
-      try {
-        task();
-      } catch (error) {
-        if (firstError === undefined) {
-          firstError = error;
+    this._flushing = true;
+
+    try {
+      // Execute every task that was pending when the flush started.
+      for (const task of batch) {
+        try {
+          task();
+        } catch (error) {
+          if (!hasError) {
+            firstError = error;
+            hasError = true;
+          }
         }
       }
+    } finally {
+      this._flushing = false;
     }
 
-    if (firstError !== undefined) {
+    if (hasError) {
       throw firstError;
     }
   }

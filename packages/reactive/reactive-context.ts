@@ -7,7 +7,12 @@ import {ReactiveNode} from './reactive-node.js';
  * active consumer to automatically register a dependency.
  */
 export class ReactiveContext {
-  private _activeConsumer: ReactiveNode | undefined;
+  /**
+   * The active consumer is process-global because JavaScript evaluation is
+   * synchronous. Sharing it lets a producer detect an accidental read across
+   * two runtimes instead of silently failing to track the dependency.
+   */
+  private static _activeConsumer: ReactiveNode | undefined;
 
   /**
    * Returns the consumer currently being evaluated.
@@ -16,7 +21,7 @@ export class ReactiveContext {
    * is currently running.
    */
   get activeConsumer(): ReactiveNode | undefined {
-    return this._activeConsumer;
+    return ReactiveContext._activeConsumer;
   }
 
   /**
@@ -25,13 +30,13 @@ export class ReactiveContext {
    * @param consumer - Node that is currently being evaluated.
    */
   setActiveConsumer(consumer: ReactiveNode): void {
-    this._activeConsumer = consumer;
+    ReactiveContext._activeConsumer = consumer;
   }
 
   /**
    * Clears the current reactive consumer.
    */
   clearActiveConsumer(): void {
-    this._activeConsumer = undefined;
+    ReactiveContext._activeConsumer = undefined;
   }
 }

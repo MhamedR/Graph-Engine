@@ -3,6 +3,7 @@ import {ReactiveNode} from './reactive-node.js';
 import {ReactiveContext} from './reactive-context.js';
 import {ReactiveLink} from './reactive-link.js';
 import {ReactiveScheduler} from './scheduler.js';
+import {ReactiveEffectScheduleHandle} from './reactive-scheduler-options.js';
 import {
   ReactiveGraphSnapshot,
   ReactiveGraphSnapshotEdge,
@@ -128,13 +129,17 @@ export class ReactiveRuntime {
    * accumulating within one scheduler batch.
    */
   private readonly pendingChanges = new Set<ReactiveNode>();
+  /** Cancellation handles for node changes that have not executed yet. */
+  private readonly pendingChangeHandles = new Map<ReactiveNode, ReactiveEffectScheduleHandle>();
   /**
    * Stores reactive nodes known to this runtime.
    *
    * The runtime keeps object references rather than IDs so diagnostic
    * operations can inspect the actual graph relationships.
    */
-  private readonly nodes = new Set<ReactiveNode>();
+  private readonly nodes = new Map<string, ReactiveNode>();
+  /** Lifecycle callback owned by each high-level reactive primitive. */
+  private readonly nodeDisposers = new Map<ReactiveNode, () => void>();
   /**
    * Tracks whether this runtime has been permanently disposed.
    *
@@ -172,14 +177,24 @@ export class ReactiveRuntime {
    * @param node - Reactive node to register.
    * @throws {Error} If this runtime has already been disposed.
    */
-  registerNode(node: ReactiveNode): void {
+  registerNode(node: ReactiveNode, dispose?: () => void): void {
     // A disposed runtime is permanently closed and cannot accept new nodes.
     if (this._disposed) {
       throw new Error('Cannot register a node with a disposed runtime.');
     }
 
-    // Set semantics automatically prevent duplicate registrations.
-    this.nodes.add(node);
+    const existing = this.nodes.get(node.id);
+
+    if (existing !== undefined && existing !== node) {
+      throw new Error(`Reactive node "${node.id}" already exists.`);
+    }
+
+    node.claimOwner(this);
+    this.nodes.set(node.id, node);
+
+    if (dispose !== undefined) {
+      this.nodeDisposers.set(node, dispose);
+    }
   }
   /**
    * Removes a reactive node from this runtime's diagnostic registry.
@@ -189,9 +204,11 @@ export class ReactiveRuntime {
    * @param node - Reactive node to unregister.
    */
   unregisterNode(node: ReactiveNode): void {
-    // Remove only the runtime's registry entry; graph cleanup remains a
-    // separate lifecycle operation.
-    this.nodes.delete(node);
+    if (this.nodes.get(node.id) === node) {
+      this.nodes.delete(node.id);
+    }
+
+    this.nodeDisposers.delete(node);
   }
   /**
    * Returns all reactive nodes currently registered with the runtime.
@@ -202,7 +219,7 @@ export class ReactiveRuntime {
    */
   getNodes(): ReactiveNode[] {
     // Return a defensive copy of the runtime's node registry.
-    return [...this.nodes];
+    return [...this.nodes.values()];
   }
   /**
    * Returns the number of reactive nodes registered with the runtime.
@@ -212,6 +229,28 @@ export class ReactiveRuntime {
   get nodeCount(): number {
     // Expose registry size without exposing the Set itself.
     return this.nodes.size;
+  }
+
+  /**
+   * Records a producer read by the globally active consumer.
+   *
+   * A shared synchronous consumer context allows reads across two runtimes to
+   * fail immediately instead of creating a silently stale computed value.
+   */
+  trackRead(producer: ReactiveNode): void {
+    const consumer = this.context.activeConsumer;
+
+    if (consumer === undefined) {
+      return;
+    }
+
+    if (!producer.isOwnedBy(this) || !consumer.isOwnedBy(this)) {
+      throw new Error(
+        `Reactive dependency "${producer.id}" -> "${consumer.id}" cannot cross runtime boundaries.`,
+      );
+    }
+
+    consumer.trackProducer(producer);
   }
   /**
    * Returns the number of distinct reactive nodes changed during the current
@@ -403,13 +442,16 @@ export class ReactiveRuntime {
 
     try {
       // Defer the actual reactive change until the scheduler is flushed.
-      this.schedule(() => {
+      const handle = this.scheduler.schedule(() => {
         // Remove the node from the pending set before applying the change.
         this.pendingChanges.delete(node);
+        this.pendingChangeHandles.delete(node);
 
         // Apply the normal reactive change semantics.
         this.markChanged(node);
       });
+
+      this.pendingChangeHandles.set(node, handle);
     } catch (error) {
       // Roll back the coalescing state if scheduling itself fails.
       this.pendingChanges.delete(node);
@@ -429,6 +471,7 @@ export class ReactiveRuntime {
 
     // Reset runtime bookkeeping for deferred reactive changes.
     this.pendingChanges.clear();
+    this.pendingChangeHandles.clear();
   }
   /**
    * Executes at most one pending scheduled task.
@@ -472,6 +515,10 @@ export class ReactiveRuntime {
    * @param node - Reactive node to remove and isolate.
    */
   disposeNode(node: ReactiveNode): void {
+    this.pendingChangeHandles.get(node)?.cancel();
+    this.pendingChangeHandles.delete(node);
+    this.pendingChanges.delete(node);
+
     // Remove every producer and consumer relationship before forgetting the
     // node from the runtime registry.
     node.clearDependencies();
@@ -488,13 +535,44 @@ export class ReactiveRuntime {
    * This is intended for shutting down an entire reactive runtime.
    */
   dispose(): void {
+    if (this._disposed) {
+      return;
+    }
+
+    // Close the runtime before invoking owner callbacks so disposal cannot
+    // enqueue new runtime work.
+    this._disposed = true;
+
     // Copy the registry before disposal because each node is removed from the
     // runtime registry during disposeNode().
-    const nodes = [...this.nodes];
+    const nodes = this.getNodes().sort((left, right) => {
+      if (left.kind === right.kind) return 0;
+      if (left.kind === 'effect') return -1;
+      if (right.kind === 'effect') return 1;
+      return 0;
+    });
+
+    let firstError: unknown;
+    let hasError = false;
 
     // Dispose every currently registered node.
     for (const node of nodes) {
-      this.disposeNode(node);
+      try {
+        const dispose = this.nodeDisposers.get(node);
+
+        if (dispose !== undefined) {
+          dispose();
+        } else {
+          this.disposeNode(node);
+        }
+      } catch (error) {
+        if (!hasError) {
+          firstError = error;
+          hasError = true;
+        }
+
+        this.disposeNode(node);
+      }
     }
 
     // Clear scheduler work that is still waiting to execute.
@@ -509,8 +587,9 @@ export class ReactiveRuntime {
     // Reset the batch depth as part of shutting down the runtime.
     this._batchDepth = 0;
 
-    // Mark the runtime as permanently disposed after all cleanup has completed.
-    this._disposed = true;
+    if (hasError) {
+      throw firstError;
+    }
   }
   /**
    * Executes a function inside a reactive batch.
@@ -531,29 +610,58 @@ export class ReactiveRuntime {
     // Enter the next batch nesting level.
     this._batchDepth++;
 
+    let result!: T;
+    let callbackError: unknown;
+    let callbackFailed = false;
+
     try {
       // Execute the caller's work while batching is active.
-      return callback();
-    } finally {
-      // Leave the current batch level even when the callback throws.
-      this._batchDepth--;
+      result = callback();
+    } catch (error) {
+      callbackError = error;
+      callbackFailed = true;
+    }
 
-      // Only the outermost batch owns the complete batch lifecycle.
-      if (this._batchDepth === 0) {
-        // Capture deferred work before clearing the collection so tasks can
-        // safely schedule additional work if necessary.
-        const tasks = [...this.afterBatchTasks];
+    // Leave the current batch level even when the callback throws.
+    this._batchDepth--;
 
-        // Clear the current batch's temporary state.
-        this.afterBatchTasks.clear();
-        this.batchedChanges.clear();
+    let deferredError: unknown;
+    let deferredFailed = false;
 
-        // Execute work that was deferred until batching completed.
-        for (const task of tasks) {
+    // Only the outermost batch owns the complete batch lifecycle.
+    if (this._batchDepth === 0) {
+      // Capture deferred work before clearing the collection so tasks can
+      // safely schedule additional work if necessary.
+      const tasks = [...this.afterBatchTasks];
+
+      // Clear the current batch's temporary state.
+      this.afterBatchTasks.clear();
+      this.batchedChanges.clear();
+
+      // Complete every deferred task and preserve the first failure.
+      for (const task of tasks) {
+        try {
           task();
+        } catch (error) {
+          if (!deferredFailed) {
+            deferredError = error;
+            deferredFailed = true;
+          }
         }
       }
     }
+
+    // The callback is the primary batch operation, so its error takes
+    // precedence over failures raised while finalizing deferred work.
+    if (callbackFailed) {
+      throw callbackError;
+    }
+
+    if (deferredFailed) {
+      throw deferredError;
+    }
+
+    return result;
   }
   /**
    * Defers work until the current outermost batch completes.
@@ -567,8 +675,12 @@ export class ReactiveRuntime {
       throw new Error('Cannot defer work on a disposed runtime.');
     }
 
-    // Store the task until the outermost batch completes.
-    this.afterBatchTasks.add(task);
+    if (this.isBatching) {
+      // Store the task until the outermost batch completes.
+      this.afterBatchTasks.add(task);
+    } else {
+      task();
+    }
   }
   /**
    * Creates a diagnostic snapshot of every reactive node currently registered

@@ -76,7 +76,7 @@ export class ReactiveEffect {
     this.node = new ReactiveNode(id, 'effect');
     // Register the effect's reactive node with the runtime so the effect
     // participates in runtime-level inspection and diagnostics.
-    this.runtime.registerNode(this.node);
+    this.runtime.registerNode(this.node, () => this.dispose());
 
     /**
      * Registers the effect's invalidation behavior.

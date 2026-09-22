@@ -97,6 +97,8 @@ runtime.flush(); // seen === [2, 10]
 - **Computeds** are lazy and cached. They rebuild dependencies on each run, so unused branches are dropped.
 - **Effects** do not run until `run()` or a scheduled flush. Invalidation schedules the effect; `runtime.flush()` executes it.
 - **Push then pull:** a write dirties descendants immediately; computeds recompute only when read.
+- Reactive node IDs are unique within a runtime. Dependencies cannot cross runtime boundaries.
+- Computed evaluation is limited to 1,000 nested computeds and fails with a stable error beyond that depth.
 
 ### Lifecycle
 
@@ -122,6 +124,9 @@ runtime.flush(); // seen === [2, 10]
 | Computed cycle / self-read    | `Reactive computed "id" cannot read itself while computing.`                                           |
 | Recursive `effect.run()`      | `Reactive effect "id" cannot run itself recursively.`                                                  |
 | Recursive `scheduler.flush()` | `Reactive scheduler cannot be flushed recursively.`                                                    |
+| Cross-runtime dependency      | `Reactive dependency "producer" -> "consumer" cannot cross runtime boundaries.`                        |
+| Duplicate reactive node ID    | `Reactive node "id" already exists.`                                                                   |
+| Excessive computed depth      | `Reactive computation depth exceeded 1000.`                                                            |
 | Missing graph node            | `Node "id" does not exist.`                                                                            |
 | Cyclic topological sort       | `Cannot perform topological sort: graph contains a cycle.`                                             |
 
@@ -132,7 +137,7 @@ These remain exported for compatibility, but application code should rarely use 
 - `ReactiveNode`, `ReactiveLink`, `ReactiveContext`, `Epoch`
 - `GraphEdge`
 
-Diagnostics (`inspect()`, `createGraphSnapshot()`, `toDot()`) are for debugging, not the hot path.
+Diagnostics (`inspect()`, `createGraphSnapshot()`) are for debugging, not the hot path.
 
 ## Scripts
 

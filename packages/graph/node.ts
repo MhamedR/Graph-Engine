@@ -12,8 +12,12 @@
  *     new Node('user-1', { name: 'Ada' })
  */
 export class Node<T = string> {
+  public readonly data: T;
+
   constructor(
     public readonly id: string,
-    public readonly data: T = id as T,
-  ) {}
+    ...payload: [T] extends [string] ? [data?: T] : [data: T]
+  ) {
+    this.data = (payload.length === 0 ? id : payload[0]) as T;
+  }
 }

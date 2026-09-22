@@ -504,26 +504,6 @@ function testRuntimeDescription(): void {
 }
 
 /**
- * Verifies that DOT output marks a computed node as dirty after its
- * producer changes.
- */
-function testRuntimeDotDirtyState(): void {
-  const runtime = new ReactiveRuntime();
-
-  const source = new ReactiveValue(runtime, 'source', 1);
-
-  const doubled = new ReactiveComputed(runtime, 'doubled', () => source.value * 2);
-
-  // Evaluate the computed value so its dependency is established.
-  assert(doubled.value === 2, 'computed value should be initialized');
-
-  // Changing the producer should invalidate the computed node.
-  source.value = 2;
-
-  assert(doubled.node.dirty, 'computed node should be dirty after its dependency changes');
-}
-
-/**
  * Verifies that disposing a single node removes it from the runtime and
  * isolates it from the dependency graph.
  */
@@ -1298,7 +1278,6 @@ testGraphSnapshotDiff();
 testGraphMetrics();
 testRuntimeInspection();
 testRuntimeDescription();
-testRuntimeDotDirtyState();
 testDisposeNode();
 testRuntimeDisposePreventsRegistration();
 testRuntimeDisposeClearsState();

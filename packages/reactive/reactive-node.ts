@@ -55,6 +55,11 @@ export interface ReactiveNodeState {
 export type ReactiveNodeKind = 'value' | 'computed' | 'effect';
 export class ReactiveNode {
   /**
+   * Runtime that owns this node. Low-level nodes may remain unowned, but a
+   * dependency cannot cross an ownership boundary.
+   */
+  private _owner: object | undefined;
+  /**
    * Current version of the node's value.
    *
    * A version change indicates that the node's current value may have
@@ -68,6 +73,11 @@ export class ReactiveNode {
    * changed.
    */
   private _dirty = false;
+  /**
+   * Whether the current dirty state came from a complete downstream
+   * invalidation traversal.
+   */
+  private _dirtyPropagationComplete = false;
   /**
    * Stores the epoch in which this node was last checked.
    *
@@ -104,7 +114,7 @@ export class ReactiveNode {
    *
    * If B depends on A, B stores the relationship to A in this collection.
    */
-  private readonly producers = new Set<ReactiveLink>();
+  private readonly producers = new Map<ReactiveNode, ReactiveLink>();
   /**
    * Tracks producers that were read during the current computation.
    *
@@ -137,6 +147,28 @@ export class ReactiveNode {
   ) {}
 
   /**
+   * Claims this node for one runtime.
+   *
+   * Reclaiming a node for the same runtime is harmless. Moving it to another
+   * runtime is rejected because existing links and scheduling state would
+   * otherwise become split across runtimes.
+   */
+  claimOwner(owner: object): void {
+    if (this._owner !== undefined && this._owner !== owner) {
+      throw new Error(`Reactive node "${this.id}" belongs to a different runtime.`);
+    }
+
+    this._owner = owner;
+  }
+
+  /**
+   * Returns whether this node is owned by the supplied runtime token.
+   */
+  isOwnedBy(owner: object): boolean {
+    return this._owner === owner;
+  }
+
+  /**
    * Returns the current version of this node.
    *
    * @returns The node's current version.
@@ -153,6 +185,13 @@ export class ReactiveNode {
   get dirty(): boolean {
     // Return the current dirty state without modifying it.
     return this._dirty;
+  }
+
+  /**
+   * Returns whether this dirty node's descendants were already traversed.
+   */
+  get dirtyPropagationComplete(): boolean {
+    return this._dirtyPropagationComplete;
   }
   /**
    * Returns the number of direct producers connected to this node.
@@ -211,8 +250,7 @@ export class ReactiveNode {
    * @returns The current producer nodes.
    */
   getProducers(): ReactiveNode[] {
-    // Extract the producer node from each dependency link.
-    return [...this.producers].map((link) => link.producer);
+    return [...this.producers.keys()];
   }
   /**
    * Returns the dependency links from this node to all of its producers.
@@ -225,7 +263,7 @@ export class ReactiveNode {
   getProducerLinks(): Set<ReactiveLink> {
     // Return a defensive copy so the internal dependency relationships remain
     // controlled by ReactiveNode.
-    return new Set(this.producers);
+    return new Set(this.producers.values());
   }
   /**
    * Advances this node to a new value version.
@@ -259,7 +297,7 @@ export class ReactiveNode {
    */
   getProducerIds(): string[] {
     // Convert the dependency relationships into producer IDs.
-    return [...this.producers].map((link) => link.producer.id);
+    return [...this.producers.keys()].map((producer) => producer.id);
   }
   /**
    * Returns the reactive nodes that depend on this node.
@@ -281,19 +319,26 @@ export class ReactiveNode {
    * @returns The existing or newly created dependency relationship.
    */
   addProducer(producer: ReactiveNode): ReactiveLink {
-    // Check whether this consumer already depends on the producer.
-    for (const link of this.producers) {
-      if (link.producer === producer) {
-        // Reuse the existing relationship instead of creating a duplicate.
-        return link;
-      }
+    if (
+      this._owner !== producer._owner &&
+      (this._owner !== undefined || producer._owner !== undefined)
+    ) {
+      throw new Error(
+        `Reactive dependency "${producer.id}" -> "${this.id}" cannot cross runtime boundaries.`,
+      );
+    }
+
+    const existing = this.producers.get(producer);
+
+    if (existing !== undefined) {
+      return existing;
     }
 
     // Create a relationship containing direct references to both nodes.
     const link = new ReactiveLink(producer, this);
 
     // Store the relationship on the consumer side.
-    this.producers.add(link);
+    this.producers.set(producer, link);
 
     // Store the same relationship on the producer side.
     producer.consumers.add(link);
@@ -312,8 +357,7 @@ export class ReactiveNode {
    * @param producer - The reactive node that should no longer be depended on.
    */
   removeProducer(producer: ReactiveNode): void {
-    // Find the relationship connecting this consumer to the producer.
-    const link = [...this.producers].find((candidate) => candidate.producer === producer);
+    const link = this.producers.get(producer);
 
     // There is nothing to remove when no relationship exists.
     if (link === undefined) {
@@ -321,7 +365,7 @@ export class ReactiveNode {
     }
 
     // Remove the relationship from the consumer's producer index.
-    this.producers.delete(link);
+    this.producers.delete(producer);
 
     // Remove the exact same relationship from the producer's consumer index.
     producer.consumers.delete(link);
@@ -333,16 +377,7 @@ export class ReactiveNode {
    * @returns `true` when a dependency relationship exists.
    */
   hasProducer(producer: ReactiveNode): boolean {
-    // Search the consumer's producer relationships for the requested node.
-    for (const link of this.producers) {
-      if (link.producer === producer) {
-        // A matching relationship exists.
-        return true;
-      }
-    }
-
-    // No relationship exists between these two nodes.
-    return false;
+    return this.producers.has(producer);
   }
   /**
    * Checks whether any producer this node depends on has changed.
@@ -355,7 +390,7 @@ export class ReactiveNode {
    */
   hasStaleProducer(): boolean {
     // Ask each dependency link whether its producer has changed.
-    for (const link of this.producers) {
+    for (const link of this.producers.values()) {
       if (link.hasChanged()) return true;
     }
 
@@ -370,7 +405,7 @@ export class ReactiveNode {
    */
   synchronizeProducerVersions(): void {
     // Record the current version of every tracked producer.
-    for (const link of this.producers) {
+    for (const link of this.producers.values()) {
       link.markCurrent();
     }
 
@@ -386,12 +421,13 @@ export class ReactiveNode {
   clearDirty(): void {
     // The node is valid again after a successful computation.
     this._dirty = false;
+    this._dirtyPropagationComplete = false;
   }
   /**
    * Propagates dirty state to all downstream consumers.
    *
-   * The traversal continues through already-dirty nodes so that a change can
-   * reach consumers further downstream in the dependency graph.
+   * Directly dirtied nodes are traversed so clean descendants cannot be
+   * skipped. Nodes reached by an earlier complete propagation are pruned.
    *
    * @returns The IDs of consumers that became newly dirty.
    */
@@ -422,18 +458,21 @@ export class ReactiveNode {
       // Visit every downstream consumer.
       for (const link of current.consumers) {
         const consumer = link.consumer;
+        const alreadyPropagated = consumer.dirty && consumer.dirtyPropagationComplete;
 
         // Invalidate the downstream consumer when this node changes.
-        const becameDirty = consumer.invalidate();
+        const becameDirty = consumer.invalidate(true);
 
         // Record consumers that transitioned from clean to dirty.
         if (becameDirty) {
           notified.push(consumer.id);
         }
 
-        // Continue traversing regardless of whether this consumer was
-        // already dirty. A dirty node can still have clean descendants.
-        queue.enqueue(consumer);
+        // A node reached by a previous complete propagation already has dirty
+        // descendants. Directly invalidated nodes still need traversal.
+        if (!alreadyPropagated) {
+          queue.enqueue(consumer);
+        }
       }
     }
 
@@ -459,7 +498,7 @@ export class ReactiveNode {
     this._lastChangedProducer = undefined;
 
     // Return and remember the first dependency whose producer has changed.
-    for (const link of this.producers) {
+    for (const link of this.producers.values()) {
       if (link.hasChanged()) {
         this._lastChangedProducer = link;
         return link;
@@ -530,7 +569,7 @@ export class ReactiveNode {
     const nextProducers = new Set(this.activeProducers);
 
     // Remove dependencies that were not used during this computation.
-    for (const link of [...this.producers]) {
+    for (const link of [...this.producers.values()]) {
       if (!nextProducers.has(link.producer)) {
         this.removeProducer(link.producer);
       }
@@ -569,7 +608,11 @@ export class ReactiveNode {
    *
    * @returns `true` when the node transitioned from clean to dirty.
    */
-  invalidate(): boolean {
+  invalidate(propagated = false): boolean {
+    if (propagated) {
+      this._dirtyPropagationComplete = true;
+    }
+
     // Do not repeatedly notify the same node while it is already dirty.
     if (this._dirty) {
       return false;
@@ -603,7 +646,7 @@ export class ReactiveNode {
   clearProducers(): void {
     // Copy the links before removing them because the producer collection is
     // modified during cleanup.
-    const links = [...this.producers];
+    const links = [...this.producers.values()];
 
     // Remove each dependency through the existing bidirectional cleanup path.
     for (const link of links) {
@@ -665,7 +708,7 @@ export class ReactiveNode {
    */
   hasConsistentRelationships(): boolean {
     // Every producer link must also appear in that producer's consumer set.
-    for (const link of this.producers) {
+    for (const link of this.producers.values()) {
       if (!link.producer.consumers.has(link)) {
         return false;
       }
@@ -682,7 +725,7 @@ export class ReactiveNode {
 
     // Every consumer link must also appear in that consumer's producer set.
     for (const link of this.consumers) {
-      if (!link.consumer.producers.has(link)) {
+      if (link.consumer.producers.get(this) !== link) {
         return false;
       }
 
@@ -708,7 +751,7 @@ export class ReactiveNode {
    */
   hasFreshProducers(): boolean {
     // Check every producer link for a version mismatch.
-    for (const link of this.producers) {
+    for (const link of this.producers.values()) {
       if (link.hasChanged()) {
         return false;
       }

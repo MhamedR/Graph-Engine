@@ -132,6 +132,7 @@ export class ReactiveScheduler implements ReactiveEffectScheduler {
 
     // Remember the first task error without interrupting the remaining tasks.
     let firstError: unknown;
+    let hasError = false;
 
     try {
       // Execute each task in the order it was scheduled.
@@ -142,8 +143,9 @@ export class ReactiveScheduler implements ReactiveEffectScheduler {
         } catch (error) {
           // Preserve the first error while allowing the remaining tasks
           // in the current batch to continue executing.
-          if (firstError === undefined) {
+          if (!hasError) {
             firstError = error;
+            hasError = true;
           }
         }
       }
@@ -155,7 +157,7 @@ export class ReactiveScheduler implements ReactiveEffectScheduler {
 
     // Report the first scheduled-task failure after the complete batch
     // has finished executing.
-    if (firstError !== undefined) {
+    if (hasError) {
       throw firstError;
     }
   }

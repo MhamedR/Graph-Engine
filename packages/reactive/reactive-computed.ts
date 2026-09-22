@@ -2,6 +2,9 @@ import {ReactiveNode} from './reactive-node.js';
 import {ReactiveRuntime} from './reactive-runtime.js';
 import {ReactiveLink} from './reactive-link.js';
 
+const MAX_COMPUTED_DEPTH = 1_000;
+let activeComputedDepth = 0;
+
 /**
  * Represents a lazily computed reactive value.
  *
@@ -51,7 +54,7 @@ export class ReactiveComputed<T> {
     this.node = new ReactiveNode(id, 'computed');
     // Register the computed node so the runtime can track it for scheduling,
     // diagnostics, and graph snapshots.
-    this.runtime.registerNode(this.node);
+    this.runtime.registerNode(this.node, () => this.dispose());
   }
 
   /**
@@ -84,6 +87,12 @@ export class ReactiveComputed<T> {
 
     // Remember which consumer was active before this computation started.
     const previousConsumer = this.runtime.context.activeConsumer;
+    const wasDirty = this.node.dirty;
+    const downstreamAlreadyInvalidated = this.node.dirtyPropagationComplete;
+
+    if (activeComputedDepth >= MAX_COMPUTED_DEPTH) {
+      throw new Error(`Reactive computation depth exceeded ${MAX_COMPUTED_DEPTH}.`);
+    }
 
     // Clear the dependency observations from the previous computation.
     this.node.beginDependencyTracking();
@@ -93,6 +102,7 @@ export class ReactiveComputed<T> {
 
     // Make this node the active consumer while its computation executes.
     this.runtime.context.setActiveConsumer(this.node);
+    activeComputedDepth++;
 
     let nextValue: T;
 
@@ -102,6 +112,7 @@ export class ReactiveComputed<T> {
     } finally {
       // Always leave the computing state, even when the computation throws.
       this.node.endComputation();
+      activeComputedDepth--;
 
       // Restore the previous reactive consumer.
       if (previousConsumer !== undefined) {
@@ -125,8 +136,16 @@ export class ReactiveComputed<T> {
 
     // Only propagate when the computed result actually changed.
     if (valueChanged) {
-      // Record the new value and invalidate downstream consumers.
-      this.node.markValueChanged();
+      if (wasDirty && downstreamAlreadyInvalidated) {
+        // The push phase already invalidated every downstream consumer. Only
+        // advance the local version while pulling this dirty chain so each
+        // recomputed node does not repeat the same downstream traversal.
+        this.node.incrementVersion();
+      } else {
+        // A clean node changed without a preceding push (including its first
+        // evaluation), so downstream consumers still need invalidation.
+        this.node.markValueChanged();
+      }
     }
 
     // The node now has a valid cached value.
@@ -154,11 +173,7 @@ export class ReactiveComputed<T> {
 
     // If another computation is currently running, register this computed
     // node as one of that computation's dependencies.
-    const consumer = this.runtime.context.activeConsumer;
-
-    if (consumer !== undefined) {
-      consumer.trackProducer(this.node);
-    }
+    this.runtime.trackRead(this.node);
 
     // Evaluate only when the cached value is invalid.
     return this.recompute();
