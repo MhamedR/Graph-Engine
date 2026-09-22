@@ -1,3 +1,5 @@
+import type {ReactiveNodeKind} from './reactive-node.js';
+
 /**
  * Describes one dependency relationship in a reactive graph snapshot.
  */
@@ -21,6 +23,9 @@ export interface ReactiveGraphSnapshotEdge {
 export interface ReactiveGraphSnapshotNode {
   /** Unique reactive node identifier. */
   id: string;
+
+  /** Concrete role represented by the node. */
+  kind: ReactiveNodeKind;
 
   /** Current node version. */
   version: number;

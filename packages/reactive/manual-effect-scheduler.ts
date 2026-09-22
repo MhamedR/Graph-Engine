@@ -2,6 +2,11 @@ import {
   ReactiveEffectScheduleHandle,
   ReactiveEffectScheduler,
 } from './reactive-scheduler-options.js';
+import {assertSynchronousScheduledTaskResult} from './scheduler.js';
+
+interface ManualEffectTaskEntry {
+  readonly task: () => void;
+}
 
 /**
  * A scheduler that stores effect tasks until the caller explicitly flushes
@@ -11,7 +16,7 @@ import {
  * control over when scheduled reactive work executes.
  */
 export class ManualEffectScheduler implements ReactiveEffectScheduler {
-  private readonly tasks: Array<() => void> = [];
+  private readonly tasks: ManualEffectTaskEntry[] = [];
   private _flushing = false;
 
   /**
@@ -22,7 +27,8 @@ export class ManualEffectScheduler implements ReactiveEffectScheduler {
    */
   schedule(task: () => void): ReactiveEffectScheduleHandle {
     // Store the task in the scheduler queue.
-    this.tasks.push(task);
+    const entry = {task};
+    this.tasks.push(entry);
 
     // Track whether this handle has already cancelled its task.
     let cancelled = false;
@@ -40,7 +46,7 @@ export class ManualEffectScheduler implements ReactiveEffectScheduler {
         cancelled = true;
 
         // Remove the task from the queue if it has not executed yet.
-        const index = this.tasks.indexOf(task);
+        const index = this.tasks.indexOf(entry);
 
         if (index !== -1) {
           this.tasks.splice(index, 1);
@@ -76,9 +82,9 @@ export class ManualEffectScheduler implements ReactiveEffectScheduler {
 
     try {
       // Execute every task that was pending when the flush started.
-      for (const task of batch) {
+      for (const entry of batch) {
         try {
-          task();
+          assertSynchronousScheduledTaskResult(entry.task());
         } catch (error) {
           if (!hasError) {
             firstError = error;

@@ -20,6 +20,9 @@ export interface ReactiveGraphSnapshotDiff {
   /** Dependency edges present only in the older snapshot. */
   readonly removedEdges: readonly ReactiveGraphSnapshotEdge[];
 
+  /** Dependency edges whose version or staleness changed. */
+  readonly changedEdges: readonly ReactiveGraphSnapshotEdgeChange[];
+
   /** Nodes that exist in both snapshots but have changed state. */
   readonly changedNodes: readonly ReactiveGraphSnapshotNodeChange[];
 }
@@ -35,13 +38,24 @@ export interface ReactiveGraphSnapshotNodeChange {
 }
 
 /**
+ * Describes an edge whose tracked state changed between two snapshots.
+ */
+export interface ReactiveGraphSnapshotEdgeChange {
+  /** Edge state before the change. */
+  readonly previous: ReactiveGraphSnapshotEdge;
+
+  /** Edge state after the change. */
+  readonly current: ReactiveGraphSnapshotEdge;
+}
+
+/**
  * Creates a stable identifier for a dependency edge.
  *
  * @param edge - Dependency edge to identify.
  * @returns Stable producer-to-consumer edge identifier.
  */
 function edgeKey(edge: ReactiveGraphSnapshotEdge): string {
-  return `${edge.producerId}->${edge.consumerId}`;
+  return JSON.stringify([edge.producerId, edge.consumerId]);
 }
 
 /**
@@ -83,6 +97,7 @@ export function diffReactiveGraphSnapshots(
     // Record only meaningful state changes.
     if (
       previousNode.version !== currentNode.version ||
+      previousNode.kind !== currentNode.kind ||
       previousNode.dirty !== currentNode.dirty ||
       previousNode.computing !== currentNode.computing ||
       previousNode.producerCount !== currentNode.producerCount ||
@@ -99,11 +114,25 @@ export function diffReactiveGraphSnapshots(
 
   const removedEdges = previous.edges.filter((edge) => !currentEdges.has(edgeKey(edge)));
 
+  const changedEdges: ReactiveGraphSnapshotEdgeChange[] = [];
+
+  for (const currentEdge of current.edges) {
+    const previousEdge = previousEdges.get(edgeKey(currentEdge));
+
+    if (
+      previousEdge !== undefined &&
+      (previousEdge.version !== currentEdge.version || previousEdge.stale !== currentEdge.stale)
+    ) {
+      changedEdges.push({previous: previousEdge, current: currentEdge});
+    }
+  }
+
   return {
     addedNodes,
     removedNodes,
     addedEdges,
     removedEdges,
+    changedEdges,
     changedNodes,
   };
 }

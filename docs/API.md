@@ -44,6 +44,8 @@ missing. Topological sorting throws for cyclic graphs.
 - `ReactiveEffect` — scheduled side effect with dynamic dependencies.
 - `ReactiveScheduler` — deterministic FIFO scheduler.
 - `ManualEffectScheduler` — manually flushed scheduler for adapters and tests.
+- `AsyncReactiveScheduler` — sequential FIFO scheduler for explicitly
+  asynchronous work.
 
 ### Extension contracts
 
@@ -56,10 +58,26 @@ missing. Topological sorting throws for cyclic graphs.
 - `ReactiveRuntime.createGraphSnapshot()`
 - `ReactiveRuntime.getGraphMetrics()`
 - `ReactiveRuntime.describe()`
+- `ReactiveRuntime.explain(nodeId)`
+- `ReactiveRuntime.subscribe(listener)`
+- `ReactiveRuntime.getTrace(query?)`
+- `ReactiveRuntime.clearTrace()`
 - `diffReactiveGraphSnapshots()`
 
-Diagnostic snapshots are detached values intended for debugging rather than
-hot-path execution.
+Pass `{traceBufferSize}` to `ReactiveRuntime` to retain a bounded event history.
+Without a buffer or live subscriber, event creation and timestamp collection
+are disabled. Live listener failures are isolated and counted in runtime state.
+`explain()` remains available without tracing and returns the most recent
+source-to-node invalidation path; its reason sequence is undefined when no
+matching event was emitted.
+
+Runtime event types are `node-registered`, `node-disposed`, `node-changed`,
+`node-invalidated`, `batch-started`, and `batch-completed`.
+
+Snapshots include node kinds. Snapshot diffs distinguish added, removed, and
+changed edges; an edge is changed when its captured version or stale state
+changes. Diagnostic snapshots are detached values intended for debugging
+rather than hot-path execution.
 
 ## `graph-engine/advanced`
 
@@ -79,6 +97,8 @@ the application API.
 - Node IDs are unique within one runtime.
 - Dependencies cannot cross runtime boundaries.
 - Evaluation and dependency tracking are synchronous.
+- Synchronous schedulers reject promise-returning tasks. Use
+  `AsyncReactiveScheduler` when tasks must be awaited.
 - Computed evaluation is limited to 1,000 nested computeds.
 - Effects run only through `run()` or their configured scheduler.
 - Disposing a runtime disposes registered values, computeds, effects, custom

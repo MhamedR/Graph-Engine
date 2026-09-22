@@ -9,6 +9,20 @@ import {
   ReactiveGraphSnapshotEdge,
   ReactiveGraphSnapshotNode,
 } from './reactive-graph-snapshot.js';
+import {
+  ReactiveInvalidationReason,
+  ReactiveNodeExplanation,
+  ReactiveRuntimeEvent,
+  ReactiveRuntimeEventListener,
+  ReactiveRuntimeOptions,
+  ReactiveTraceQuery,
+} from './reactive-events.js';
+
+type ReactiveRuntimeEventInput = ReactiveRuntimeEvent extends infer Event
+  ? Event extends ReactiveRuntimeEvent
+    ? Omit<Event, 'sequence' | 'timestamp' | 'epoch'>
+    : never
+  : never;
 
 /**
  * Describes the observable diagnostic state of the reactive runtime.
@@ -43,6 +57,18 @@ export interface ReactiveRuntimeState {
 
   /** Number of tasks waiting for the current batch to complete. */
   deferredBatchTaskCount: number;
+
+  /** Latest emitted runtime event sequence. */
+  eventSequence: number;
+
+  /** Number of runtime events retained in the trace buffer. */
+  traceEventCount: number;
+
+  /** Number of live runtime event subscribers. */
+  eventListenerCount: number;
+
+  /** Number of subscriber callbacks that have thrown. */
+  eventListenerErrorCount: number;
 }
 /**
  * Describes aggregate metrics for the current reactive graph.
@@ -88,6 +114,9 @@ export interface ReactiveRuntimeInspection {
 export interface ReactiveNodeInspection {
   /** Unique identifier of the reactive node. */
   readonly id: string;
+
+  /** Concrete role of the reactive node. */
+  readonly kind: ReactiveNode['kind'];
 
   /** Current node version. */
   readonly version: number;
@@ -168,6 +197,148 @@ export class ReactiveRuntime {
    * once during a batch.
    */
   private readonly afterBatchTasks = new Set<() => void>();
+  private readonly traceBufferSize: number;
+  private readonly traceEvents: ReactiveRuntimeEvent[] = [];
+  private readonly eventListeners = new Set<ReactiveRuntimeEventListener>();
+  private readonly invalidationReasons = new Map<ReactiveNode, ReactiveInvalidationReason>();
+  private _eventSequence = 0;
+  private _eventListenerErrorCount = 0;
+
+  constructor(options: ReactiveRuntimeOptions = {}) {
+    const traceBufferSize = options.traceBufferSize ?? 0;
+
+    if (!Number.isSafeInteger(traceBufferSize) || traceBufferSize < 0) {
+      throw new RangeError('traceBufferSize must be a non-negative safe integer.');
+    }
+
+    this.traceBufferSize = traceBufferSize;
+  }
+
+  /**
+   * Subscribes to structured runtime events.
+   *
+   * Listener failures are isolated from reactive execution and counted in
+   * runtime diagnostics.
+   *
+   * @returns An idempotent unsubscribe callback.
+   */
+  subscribe(listener: ReactiveRuntimeEventListener): () => void {
+    this.eventListeners.add(listener);
+    let subscribed = true;
+
+    return () => {
+      if (!subscribed) return;
+      subscribed = false;
+      this.eventListeners.delete(listener);
+    };
+  }
+
+  /**
+   * Returns retained events after an optional sequence cursor.
+   */
+  getTrace(query: ReactiveTraceQuery = {}): readonly ReactiveRuntimeEvent[] {
+    const sinceSequence = query.sinceSequence ?? 0;
+    const limit = query.limit ?? Number.POSITIVE_INFINITY;
+
+    if (!Number.isSafeInteger(sinceSequence) || sinceSequence < 0) {
+      throw new RangeError('sinceSequence must be a non-negative safe integer.');
+    }
+
+    if (limit !== Number.POSITIVE_INFINITY && (!Number.isSafeInteger(limit) || limit < 0)) {
+      throw new RangeError('limit must be a non-negative safe integer.');
+    }
+
+    return this.traceEvents.filter((event) => event.sequence > sinceSequence).slice(0, limit);
+  }
+
+  /**
+   * Clears retained trace events without affecting live subscribers.
+   */
+  clearTrace(): void {
+    this.traceEvents.length = 0;
+  }
+
+  /**
+   * Explains the current state and most recent invalidation path of one node.
+   */
+  explain(nodeId: string): ReactiveNodeExplanation {
+    const node = this.nodes.get(nodeId);
+
+    if (node === undefined) {
+      throw new Error(`Reactive node "${nodeId}" does not exist.`);
+    }
+
+    return {
+      nodeId: node.id,
+      kind: node.kind,
+      version: node.version,
+      dirty: node.dirty,
+      computing: node.computing,
+      producerIds: node.getProducerIds(),
+      consumerIds: node.getConsumerIds(),
+      invalidation: this.invalidationReasons.get(node),
+    };
+  }
+
+  private get emitsEvents(): boolean {
+    return this.traceBufferSize > 0 || this.eventListeners.size > 0;
+  }
+
+  private emitEvent(input: ReactiveRuntimeEventInput): number {
+    const sequence = ++this._eventSequence;
+    const event = {
+      ...input,
+      sequence,
+      timestamp: Date.now(),
+      epoch: this.epoch.value,
+    } as ReactiveRuntimeEvent;
+
+    if (this.traceBufferSize > 0) {
+      this.traceEvents.push(event);
+
+      if (this.traceEvents.length > this.traceBufferSize) {
+        this.traceEvents.shift();
+      }
+    }
+
+    const listeners = Array.from(this.eventListeners);
+
+    for (const listener of listeners) {
+      try {
+        listener(event);
+      } catch {
+        this._eventListenerErrorCount++;
+      }
+    }
+
+    return sequence;
+  }
+
+  private recordInvalidation(producer: ReactiveNode, consumer: ReactiveNode): void {
+    const producerReason = this.invalidationReasons.get(producer);
+    const sequence = this.emitsEvents ? this._eventSequence + 1 : undefined;
+    const reason: ReactiveInvalidationReason = {
+      sequence,
+      epoch: this.epoch.value,
+      sourceNodeId: producerReason?.sourceNodeId ?? producer.id,
+      producerNodeId: producer.id,
+      path:
+        producerReason === undefined
+          ? [producer.id, consumer.id]
+          : [...producerReason.path, consumer.id],
+    };
+
+    this.invalidationReasons.set(consumer, reason);
+
+    if (this.emitsEvents) {
+      this.emitEvent({
+        type: 'node-invalidated',
+        nodeId: consumer.id,
+        nodeKind: consumer.kind,
+        reason,
+      });
+    }
+  }
   /**
    * Registers a reactive node with this runtime.
    *
@@ -195,6 +366,14 @@ export class ReactiveRuntime {
     if (dispose !== undefined) {
       this.nodeDisposers.set(node, dispose);
     }
+
+    if (existing === undefined && this.emitsEvents) {
+      this.emitEvent({
+        type: 'node-registered',
+        nodeId: node.id,
+        nodeKind: node.kind,
+      });
+    }
   }
   /**
    * Removes a reactive node from this runtime's diagnostic registry.
@@ -209,6 +388,7 @@ export class ReactiveRuntime {
     }
 
     this.nodeDisposers.delete(node);
+    this.invalidationReasons.delete(node);
   }
   /**
    * Returns all reactive nodes currently registered with the runtime.
@@ -284,8 +464,23 @@ export class ReactiveRuntime {
     // Advance the global reactive epoch before propagating the change.
     const epoch = this.epoch.increment();
 
-    // Update the node's value version and propagate invalidation.
-    const invalidatedConsumers = node.markValueChanged();
+    // Update the node before publishing causally ordered change and
+    // invalidation events.
+    node.incrementVersion();
+    this.invalidationReasons.delete(node);
+
+    if (this.emitsEvents) {
+      this.emitEvent({
+        type: 'node-changed',
+        nodeId: node.id,
+        nodeKind: node.kind,
+        version: node.version,
+      });
+    }
+
+    const invalidatedConsumers = node.notifyConsumers((producer, consumer) => {
+      this.recordInvalidation(producer, consumer);
+    });
     // Record the changed node when inside a batch so the outer batch can later
     // coordinate its pending reactive work.
     if (this.isBatching) {
@@ -368,6 +563,10 @@ export class ReactiveRuntime {
       isBatching: this.isBatching,
       batchDepth: this.batchDepth,
       deferredBatchTaskCount: this.deferredBatchTaskCount,
+      eventSequence: this._eventSequence,
+      traceEventCount: this.traceEvents.length,
+      eventListenerCount: this.eventListeners.size,
+      eventListenerErrorCount: this._eventListenerErrorCount,
     };
   }
   /**
@@ -515,6 +714,8 @@ export class ReactiveRuntime {
    * @param node - Reactive node to remove and isolate.
    */
   disposeNode(node: ReactiveNode): void {
+    const wasRegistered = this.nodes.get(node.id) === node;
+
     this.pendingChangeHandles.get(node)?.cancel();
     this.pendingChangeHandles.delete(node);
     this.pendingChanges.delete(node);
@@ -525,6 +726,15 @@ export class ReactiveRuntime {
 
     // Remove the node from runtime-level inspection.
     this.unregisterNode(node);
+    this.invalidationReasons.delete(node);
+
+    if (wasRegistered && this.emitsEvents) {
+      this.emitEvent({
+        type: 'node-disposed',
+        nodeId: node.id,
+        nodeKind: node.kind,
+      });
+    }
   }
   /**
    * Disposes every reactive node registered with this runtime.
@@ -586,6 +796,7 @@ export class ReactiveRuntime {
 
     // Reset the batch depth as part of shutting down the runtime.
     this._batchDepth = 0;
+    this.eventListeners.clear();
 
     if (hasError) {
       throw firstError;
@@ -610,6 +821,10 @@ export class ReactiveRuntime {
     // Enter the next batch nesting level.
     this._batchDepth++;
 
+    if (this.emitsEvents) {
+      this.emitEvent({type: 'batch-started', depth: this._batchDepth});
+    }
+
     let result!: T;
     let callbackError: unknown;
     let callbackFailed = false;
@@ -621,6 +836,10 @@ export class ReactiveRuntime {
       callbackError = error;
       callbackFailed = true;
     }
+
+    const completedDepth = this._batchDepth;
+    const changedNodeIds = this.emitsEvents ? [...this.batchedChanges].map((node) => node.id) : [];
+    const deferredTaskCount = this.afterBatchTasks.size;
 
     // Leave the current batch level even when the callback throws.
     this._batchDepth--;
@@ -649,6 +868,16 @@ export class ReactiveRuntime {
           }
         }
       }
+    }
+
+    if (this.emitsEvents) {
+      this.emitEvent({
+        type: 'batch-completed',
+        depth: completedDepth,
+        changedNodeIds,
+        deferredTaskCount,
+        failed: callbackFailed || deferredFailed,
+      });
     }
 
     // The callback is the primary batch operation, so its error takes
@@ -692,9 +921,12 @@ export class ReactiveRuntime {
    * @returns A detached snapshot of the current reactive graph.
    */
   createGraphSnapshot(): ReactiveGraphSnapshot {
+    const registeredNodes = this.getNodes();
+
     // Capture node state without exposing the actual ReactiveNode objects.
-    const nodes: ReactiveGraphSnapshotNode[] = this.getNodes().map((node) => ({
+    const nodes: ReactiveGraphSnapshotNode[] = registeredNodes.map((node) => ({
       id: node.id,
+      kind: node.kind,
       version: node.version,
       dirty: node.dirty,
       computing: node.computing,
@@ -708,7 +940,7 @@ export class ReactiveRuntime {
     /**
      * Collects every dependency relationship from the registered nodes.
      */
-    for (const node of this.getNodes()) {
+    for (const node of registeredNodes) {
       // Use the public producer-link API rather than reaching into ReactiveNode's
       // private dependency storage.
       for (const link of node.getProducerLinks()) {
@@ -788,6 +1020,7 @@ export class ReactiveRuntime {
     // Capture detailed information for every registered node.
     const nodes: ReactiveNodeInspection[] = this.getNodes().map((node) => ({
       id: node.id,
+      kind: node.kind,
       version: node.version,
       dirty: node.dirty,
       computing: node.computing,

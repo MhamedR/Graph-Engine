@@ -24,6 +24,7 @@ export {ReactiveEffect} from './reactive-effect.js';
 
 export {ReactiveScheduler} from './scheduler.js';
 export {ManualEffectScheduler} from './manual-effect-scheduler.js';
+export {AsyncReactiveScheduler, type AsyncScheduledTask} from './async-reactive-scheduler.js';
 export type {
   ReactiveEffectScheduleHandle,
   ReactiveEffectScheduler,
@@ -37,5 +38,21 @@ export {
 export {
   diffReactiveGraphSnapshots,
   type ReactiveGraphSnapshotDiff,
+  type ReactiveGraphSnapshotEdgeChange,
   type ReactiveGraphSnapshotNodeChange,
 } from './reactive-graph-diff.js';
+
+export type {
+  ReactiveBatchCompletedEvent,
+  ReactiveBatchStartedEvent,
+  ReactiveInvalidationReason,
+  ReactiveNodeChangedEvent,
+  ReactiveNodeDisposedEvent,
+  ReactiveNodeExplanation,
+  ReactiveNodeInvalidatedEvent,
+  ReactiveNodeRegisteredEvent,
+  ReactiveRuntimeEvent,
+  ReactiveRuntimeEventListener,
+  ReactiveRuntimeOptions,
+  ReactiveTraceQuery,
+} from './reactive-events.js';

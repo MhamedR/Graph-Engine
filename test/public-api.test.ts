@@ -23,17 +23,23 @@ import {assert} from './assert.js';
  * Public types are imported so removing a type-only export fails typecheck.
  */
 import type {
+  AsyncScheduledTask,
   ReactiveEffectScheduleHandle,
   ReactiveEffectScheduler,
   ReactiveGraphMetrics,
   ReactiveGraphSnapshot,
   ReactiveGraphSnapshotDiff,
   ReactiveGraphSnapshotEdge,
+  ReactiveGraphSnapshotEdgeChange,
   ReactiveGraphSnapshotNode,
   ReactiveGraphSnapshotNodeChange,
   ReactiveNodeInspection,
+  ReactiveNodeExplanation,
+  ReactiveRuntimeEvent,
+  ReactiveRuntimeOptions,
   ReactiveRuntimeInspection,
   ReactiveRuntimeState,
+  ReactiveTraceQuery,
 } from '../packages/graph-engine/index.js';
 
 /**
@@ -58,6 +64,7 @@ const GRAPH_RUNTIME_EXPORTS = [
  * Runtime values exported by the reactive public entry point.
  */
 const REACTIVE_RUNTIME_EXPORTS = [
+  'AsyncReactiveScheduler',
   'ManualEffectScheduler',
   'ReactiveComputed',
   'ReactiveEffect',
@@ -160,15 +167,21 @@ function testPublicTypeExports(): void {
     | [
         ReactiveEffectScheduleHandle,
         ReactiveEffectScheduler,
+        AsyncScheduledTask,
         ReactiveGraphMetrics,
         ReactiveGraphSnapshot,
         ReactiveGraphSnapshotDiff,
         ReactiveGraphSnapshotEdge,
+        ReactiveGraphSnapshotEdgeChange,
         ReactiveGraphSnapshotNode,
         ReactiveGraphSnapshotNodeChange,
         ReactiveNodeInspection,
+        ReactiveNodeExplanation,
+        ReactiveRuntimeEvent,
+        ReactiveRuntimeOptions,
         ReactiveRuntimeInspection,
         ReactiveRuntimeState,
+        ReactiveTraceQuery,
         ReactiveNodeKind,
         ReactiveNodeState,
       ]

@@ -61,6 +61,27 @@ Values push invalidation through the dependency graph. Computeds pull and
 cache their values lazily. Effects are scheduled deterministically and execute
 when their scheduler is flushed.
 
+### Explain invalidations
+
+```ts
+const tracedRuntime = new ReactiveRuntime({traceBufferSize: 128});
+
+tracedRuntime.subscribe((event) => {
+  console.log(event.type, event.sequence);
+});
+
+tracedRuntime.explain('some-computed').invalidation?.path;
+tracedRuntime.getTrace({sinceSequence: 0, limit: 25});
+```
+
+Tracing is bounded and opt-in. `explain()` returns the most recent causal
+source-to-node invalidation path even when event retention is disabled.
+Snapshots include node kinds, and snapshot diffs report changed edge state.
+
+For asynchronous scheduled work, use `AsyncReactiveScheduler`. The synchronous
+schedulers reject promise-returning tasks so a flush cannot complete while
+work is still unsettled.
+
 ## Entry points
 
 - `graph-engine` — application graph and reactive APIs

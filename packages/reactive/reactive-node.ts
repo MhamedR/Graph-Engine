@@ -53,6 +53,7 @@ export interface ReactiveNodeState {
  * Identifies the concrete role of a reactive node in the reactive graph.
  */
 export type ReactiveNodeKind = 'value' | 'computed' | 'effect';
+export type ReactiveInvalidationObserver = (producer: ReactiveNode, consumer: ReactiveNode) => void;
 export class ReactiveNode {
   /**
    * Runtime that owns this node. Low-level nodes may remain unowned, but a
@@ -283,12 +284,12 @@ export class ReactiveNode {
    *
    * @returns The IDs of consumers that became newly invalid.
    */
-  markValueChanged(): string[] {
+  markValueChanged(onInvalidate?: ReactiveInvalidationObserver): string[] {
     // Advance this node's local version.
     this.incrementVersion();
 
     // Invalidate downstream consumers and report newly invalid consumers.
-    return this.notifyConsumers();
+    return this.notifyConsumers(onInvalidate);
   }
   /**
    * Returns the reactive nodes this node currently depends on.
@@ -431,7 +432,7 @@ export class ReactiveNode {
    *
    * @returns The IDs of consumers that became newly dirty.
    */
-  notifyConsumers(): string[] {
+  notifyConsumers(onInvalidate?: ReactiveInvalidationObserver): string[] {
     // Keep track of nodes we have already visited so cycles cannot cause
     // an infinite traversal.
     const visited = new Set<ReactiveNode>();
@@ -466,6 +467,7 @@ export class ReactiveNode {
         // Record consumers that transitioned from clean to dirty.
         if (becameDirty) {
           notified.push(consumer.id);
+          onInvalidate?.(current, consumer);
         }
 
         // A node reached by a previous complete propagation already has dirty

@@ -120,6 +120,40 @@ runtime.flush(); // seen === [2, 10]
 
 `ManualEffectScheduler` is a deterministic alternative with the same continue-then-rethrow flush contract.
 
+`ReactiveScheduler` and `ManualEffectScheduler` reject promise-returning tasks
+instead of silently finishing a flush before async work settles.
+`AsyncReactiveScheduler.flush()` explicitly awaits tasks in insertion order,
+continues after failures, and rethrows the first failure after the captured
+batch settles.
+
+### Causality and diagnostics
+
+Runtime tracing is opt-in and bounded:
+
+```ts
+const runtime = new ReactiveRuntime({traceBufferSize: 256});
+const unsubscribe = runtime.subscribe((event) => {
+  console.log(event.type, event.sequence);
+});
+
+// After a source write:
+runtime.explain('doubled').invalidation?.path; // ['count', 'doubled']
+runtime.getTrace({sinceSequence: 10, limit: 50});
+
+unsubscribe();
+runtime.clearTrace();
+```
+
+Events cover node registration and disposal, source changes, downstream
+invalidations, and batch boundaries. Listener failures cannot interrupt
+reactive execution and are counted by `runtime.state.eventListenerErrorCount`.
+When there is no trace buffer and no subscriber, event objects and timestamps
+are not created.
+
+Graph snapshots include node kinds. `diffReactiveGraphSnapshots()` reports
+added, removed, and changed nodes and edges; changed edges capture version or
+staleness transitions.
+
 ### Errors
 
 | Failure                       | Contract                                                                                               |
@@ -158,8 +192,9 @@ npm run typecheck
 npm run lint
 npm run build     # production emit of packages/graph-engine, tests excluded
 npm run package:smoke
-npm run ci        # lint + format + types + coverage + build + package smoke
+npm run ci        # lint + format + types + coverage + perf + build + package smoke
 npm run bench     # local performance baseline
+npm run bench:regression # executable CI performance budgets
 ```
 
 CI runs `npm run ci` on `main` and pull requests.

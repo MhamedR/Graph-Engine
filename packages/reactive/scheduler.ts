@@ -8,6 +8,23 @@ import {
  */
 export type ScheduledTask = () => void;
 
+interface ScheduledTaskEntry {
+  readonly task: ScheduledTask;
+}
+
+export function assertSynchronousScheduledTaskResult(result: unknown): void {
+  if (
+    result !== null &&
+    (typeof result === 'object' || typeof result === 'function') &&
+    typeof (result as PromiseLike<unknown>).then === 'function'
+  ) {
+    void Promise.resolve(result).catch(() => undefined);
+    throw new TypeError(
+      'ReactiveScheduler tasks must be synchronous. Use AsyncReactiveScheduler for asynchronous work.',
+    );
+  }
+}
+
 /**
  * Provides a minimal scheduling abstraction for the reactive runtime.
  *
@@ -16,7 +33,7 @@ export type ScheduledTask = () => void;
  * deferred recomputation.
  */
 export class ReactiveScheduler implements ReactiveEffectScheduler {
-  private readonly queue: ScheduledTask[] = [];
+  private readonly queue: ScheduledTaskEntry[] = [];
 
   /**
    * Tracks whether the scheduler is currently executing a batch.
@@ -34,7 +51,8 @@ export class ReactiveScheduler implements ReactiveEffectScheduler {
    */
   schedule(task: ScheduledTask): ReactiveEffectScheduleHandle {
     // Store the task until the scheduler is explicitly flushed.
-    this.queue.push(task);
+    const entry = {task};
+    this.queue.push(entry);
 
     // Track whether this particular task has already been cancelled.
     let cancelled = false;
@@ -52,7 +70,7 @@ export class ReactiveScheduler implements ReactiveEffectScheduler {
         cancelled = true;
 
         // Locate the task in the pending queue.
-        const index = this.queue.indexOf(task);
+        const index = this.queue.indexOf(entry);
 
         // Remove it only when it has not already entered a flush batch.
         if (index !== -1) {
@@ -136,10 +154,10 @@ export class ReactiveScheduler implements ReactiveEffectScheduler {
 
     try {
       // Execute each task in the order it was scheduled.
-      for (const task of batch) {
+      for (const entry of batch) {
         try {
           // Run the scheduled unit of work.
-          task();
+          assertSynchronousScheduledTaskResult(entry.task());
         } catch (error) {
           // Preserve the first error while allowing the remaining tasks
           // in the current batch to continue executing.
@@ -178,10 +196,10 @@ export class ReactiveScheduler implements ReactiveEffectScheduler {
     }
 
     // Remove the next task from the pending queue.
-    const task = this.queue.shift();
+    const entry = this.queue.shift();
 
     // There is nothing to execute when the queue is empty.
-    if (task === undefined) {
+    if (entry === undefined) {
       return;
     }
 
@@ -190,7 +208,7 @@ export class ReactiveScheduler implements ReactiveEffectScheduler {
 
     try {
       // Execute exactly one pending task.
-      task();
+      assertSynchronousScheduledTaskResult(entry.task());
     } finally {
       // Always restore the scheduler to its idle state.
       this._flushing = false;
