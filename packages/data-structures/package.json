@@ -1,8 +1,8 @@
 {
-  "name": "graph-engine-data-structures",
+  "name": "graphora-data-structures",
   "version": "1.0.0",
   "private": true,
-  "description": "Internal data structures for graph-engine packages.",
+  "description": "Internal data structures for graphora packages.",
   "type": "module",
   "main": "./index.ts",
   "types": "./index.ts",

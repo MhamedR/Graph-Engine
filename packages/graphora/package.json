@@ -1,0 +1,84 @@
+{
+  "name": "graphora",
+  "version": "1.0.0",
+  "description": "Framework-agnostic directed graph and reactive engine for TypeScript.",
+  "type": "module",
+  "main": "./dist/graphora/index.js",
+  "types": "./dist/graphora/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/graphora/index.d.ts",
+      "import": "./dist/graphora/index.js",
+      "default": "./dist/graphora/index.js"
+    },
+    "./graph": {
+      "types": "./dist/graph/index.d.ts",
+      "import": "./dist/graph/index.js",
+      "default": "./dist/graph/index.js"
+    },
+    "./reactive": {
+      "types": "./dist/reactive/index.d.ts",
+      "import": "./dist/reactive/index.js",
+      "default": "./dist/reactive/index.js"
+    },
+    "./advanced": {
+      "types": "./dist/graphora/advanced.d.ts",
+      "import": "./dist/graphora/advanced.js",
+      "default": "./dist/graphora/advanced.js"
+    },
+    "./opentelemetry": {
+      "types": "./dist/graphora/opentelemetry.d.ts",
+      "import": "./dist/graphora/opentelemetry.js",
+      "default": "./dist/graphora/opentelemetry.js"
+    },
+    "./inspector": {
+      "types": "./dist/graphora/inspector.d.ts",
+      "import": "./dist/graphora/inspector.js",
+      "default": "./dist/graphora/inspector.js"
+    },
+    "./devtools": {
+      "types": "./dist/graphora/devtools.d.ts",
+      "import": "./dist/graphora/devtools.js",
+      "default": "./dist/graphora/devtools.js"
+    },
+    "./store": {
+      "types": "./dist/graphora/store.d.ts",
+      "import": "./dist/graphora/store.js",
+      "default": "./dist/graphora/store.js"
+    }
+  },
+  "files": [
+    "CHANGELOG.md",
+    "LICENSE",
+    "README.md",
+    "dist"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "prepack": "npm --prefix ../.. run build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MhamedR/Graphora.git",
+    "directory": "packages/graphora"
+  },
+  "keywords": [
+    "directed-graph",
+    "reactivity",
+    "signals",
+    "dependency-graph",
+    "typescript"
+  ],
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/MhamedR/Graphora/issues"
+  },
+  "homepage": "https://github.com/MhamedR/Graphora#readme"
+}

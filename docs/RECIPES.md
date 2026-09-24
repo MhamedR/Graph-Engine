@@ -1,7 +1,7 @@
 # Recipes
 
-Integration recipes for `graph-engine`. None of these integrations add runtime
-dependencies to `graph-engine`; the host application installs the framework or
+Integration recipes for `graphora`. None of these integrations add runtime
+dependencies to `graphora`; the host application installs the framework or
 SDK it already uses.
 
 ## Writing a plugin
@@ -11,7 +11,7 @@ Cleanup runs on `uninstall()` or `runtime.dispose()`, in reverse installation
 order.
 
 ```ts
-import {ReactiveRuntime, type ReactiveRuntimePlugin} from 'graph-engine';
+import {ReactiveRuntime, type ReactiveRuntimePlugin} from 'graphora';
 
 const slowComputationLogger = (thresholdMs: number): ReactiveRuntimePlugin => ({
   name: 'slow-computation-logger',
@@ -39,7 +39,7 @@ Create one store per source and reuse it across renders.
 
 ```tsx
 import {useSyncExternalStore} from 'react';
-import {createExternalStore, createMicrotaskScheduler} from 'graph-engine/store';
+import {createExternalStore, createMicrotaskScheduler} from 'graphora/store';
 
 const scheduler = createMicrotaskScheduler();
 const totalStore = createExternalStore(runtime, total, {scheduler});
@@ -59,7 +59,7 @@ it.
 
 ```ts
 import {customRef, onScopeDispose, type Ref} from 'vue';
-import type {ReactiveExternalStore} from 'graph-engine/store';
+import type {ReactiveExternalStore} from 'graphora/store';
 
 export function useReactive<T>(store: ReactiveExternalStore<T>): Readonly<Ref<T>> {
   return customRef<T>((track, trigger) => {
@@ -71,7 +71,7 @@ export function useReactive<T>(store: ReactiveExternalStore<T>): Readonly<Ref<T>
         return store.getSnapshot();
       },
       set() {
-        throw new Error('graph-engine stores are read-only; write to the source value.');
+        throw new Error('graphora stores are read-only; write to the source value.');
       },
     };
   });
@@ -85,7 +85,7 @@ export function useReactive<T>(store: ReactiveExternalStore<T>): Readonly<Ref<T>
 
 ```svelte
 <script lang="ts">
-  import {createExternalStore, createMicrotaskScheduler, toSvelteStore} from 'graph-engine/store';
+  import {createExternalStore, createMicrotaskScheduler, toSvelteStore} from 'graphora/store';
 
   const total$ = toSvelteStore(
     createExternalStore(runtime, total, {scheduler: createMicrotaskScheduler()}),
@@ -109,11 +109,11 @@ const totalSignal = from<number>((set) => {
 ## OpenTelemetry
 
 The adapter accepts any tracer with the OpenTelemetry `startSpan` shape, so
-`@opentelemetry/api` stays in your dependencies, not graph-engine's.
+`@opentelemetry/api` stays in your dependencies, not graphora's.
 
 ```ts
 import {context, trace} from '@opentelemetry/api';
-import {createOpenTelemetryPlugin} from 'graph-engine/opentelemetry';
+import {createOpenTelemetryPlugin} from 'graphora/opentelemetry';
 
 runtime.use(
   createOpenTelemetryPlugin({
@@ -127,26 +127,26 @@ It records these spans:
 
 | Span                    | Covers                         | Key attributes                                                          |
 | ----------------------- | ------------------------------ | ----------------------------------------------------------------------- |
-| `graph-engine.batch`    | an outermost `runtime.batch()` | `graph_engine.batch.changed_nodes`, `graph_engine.batch.deferred_tasks` |
-| `graph-engine.computed` | one computed evaluation        | `graph_engine.node.id`, `graph_engine.value_changed`                    |
-| `graph-engine.effect`   | one effect run                 | `graph_engine.node.id`                                                  |
+| `graphora.batch`    | an outermost `runtime.batch()` | `graphora.batch.changed_nodes`, `graphora.batch.deferred_tasks` |
+| `graphora.computed` | one computed evaluation        | `graphora.node.id`, `graphora.value_changed`                    |
+| `graphora.effect`   | one effect run                 | `graphora.node.id`                                                  |
 
 Computations nest under the batch or computation that triggered them. Source
 changes and invalidations become span events carrying the causal path, for
-example `graph_engine.path = "price > subtotal > total"`. Failed computations
+example `graphora.path = "price > subtotal > total"`. Failed computations
 set the span status to `ERROR` with the error message. Pass
 `recordInvalidations: false` to keep spans small on very wide graphs.
 
 ## MCP server
 
-`graph-engine/inspector` provides read-only tools and converts them to the MCP
+`graphora/inspector` provides read-only tools and converts them to the MCP
 tool and result shapes. Wire them into the official SDK's low-level server:
 
 ```ts
 import {Server} from '@modelcontextprotocol/sdk/server/index.js';
 import {StdioServerTransport} from '@modelcontextprotocol/sdk/server/stdio.js';
 import {CallToolRequestSchema, ListToolsRequestSchema} from '@modelcontextprotocol/sdk/types.js';
-import {callMcpTool, createInspectorTools, toMcpTools} from 'graph-engine/inspector';
+import {callMcpTool, createInspectorTools, toMcpTools} from 'graphora/inspector';
 
 const tools = createInspectorTools(runtime, {maxResults: 200});
 const server = new Server({name: 'my-app-graph', version: '1.0.0'}, {capabilities: {tools: {}}});
@@ -160,16 +160,16 @@ await server.connect(new StdioServerTransport());
 The runtime lives in your process, so the MCP server must too. Stdio suits
 scripts and CLIs; long-running services should use the SDK's Streamable HTTP
 transport. Create the runtime with a `traceBufferSize` so
-`graph_engine_trace` has history to return.
+`graphora_trace` has history to return.
 
 | Tool                        | Purpose                                               |
 | --------------------------- | ----------------------------------------------------- |
-| `graph_engine_describe`     | runtime state, graph metrics, plugins, schema version |
-| `graph_engine_list_nodes`   | nodes filtered by kind, dirty state, or ID prefix     |
-| `graph_engine_explain`      | one node's state and its latest invalidation path     |
-| `graph_engine_dependencies` | transitive upstream or downstream nodes with depth    |
-| `graph_engine_trace`        | retained events after a cursor, by type or node       |
-| `graph_engine_snapshot`     | bounded snapshot of nodes and edges                   |
+| `graphora_describe`     | runtime state, graph metrics, plugins, schema version |
+| `graphora_list_nodes`   | nodes filtered by kind, dirty state, or ID prefix     |
+| `graphora_explain`      | one node's state and its latest invalidation path     |
+| `graphora_dependencies` | transitive upstream or downstream nodes with depth    |
+| `graphora_trace`        | retained events after a cursor, by type or node       |
+| `graphora_snapshot`     | bounded snapshot of nodes and edges                   |
 
 Every tool validates its input, is annotated `readOnlyHint: true`, and cannot
 mutate the runtime. Invalid input becomes an MCP tool error the model can read.
@@ -180,7 +180,7 @@ mutate the runtime. Invalid input becomes an MCP tool error the model can read.
 answers inspection requests.
 
 ```ts
-import {createDevtoolsBridge} from 'graph-engine/devtools';
+import {createDevtoolsBridge} from 'graphora/devtools';
 
 const bridge = createDevtoolsBridge({
   runtimeId: 'checkout',
@@ -199,12 +199,12 @@ task are coalesced into a single `events` message; when the queue exceeds
 
 ```json
 {
-  "protocol": "graph-engine-devtools",
+  "protocol": "graphora-devtools",
   "version": 1,
   "runtimeId": "checkout",
   "type": "request",
   "requestId": "1",
-  "tool": "graph_engine_explain",
+  "tool": "graphora_explain",
   "input": {"nodeId": "total"}
 }
 ```

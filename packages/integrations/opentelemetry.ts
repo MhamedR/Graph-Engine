@@ -2,7 +2,7 @@
  * OpenTelemetry integration.
  *
  * The adapter depends only on the structural shape of an OpenTelemetry
- * tracer, so `graph-engine` does not install `@opentelemetry/api`. Pass the
+ * tracer, so `graphora` does not install `@opentelemetry/api`. Pass the
  * tracer returned by `trace.getTracer()`.
  */
 
@@ -56,8 +56,8 @@ const SPAN_STATUS_ERROR = 2;
  * Creates a plugin that exports batches and computed/effect evaluations as
  * OpenTelemetry spans.
  *
- * - `graph-engine.batch` spans cover an outermost `runtime.batch()`.
- * - `graph-engine.computed` and `graph-engine.effect` spans cover one callback
+ * - `graphora.batch` spans cover an outermost `runtime.batch()`.
+ * - `graphora.computed` and `graphora.effect` spans cover one callback
  *   evaluation and nest under the active batch or computation.
  * - Source changes and invalidations are attached to the innermost open span.
  */
@@ -68,7 +68,7 @@ export function createOpenTelemetryPlugin<Span extends OpenTelemetrySpanLike, Co
   const recordInvalidations = options.recordInvalidations ?? true;
 
   return {
-    name: options.name ?? 'graph-engine:opentelemetry',
+    name: options.name ?? 'graphora:opentelemetry',
     install(runtime: ReactiveRuntime) {
       const openSpans: {readonly sequence: number; readonly span: Span}[] = [];
 
@@ -104,7 +104,7 @@ export function createOpenTelemetryPlugin<Span extends OpenTelemetrySpanLike, Co
               outermostBatchSequence = event.sequence;
               openSpans.push({
                 sequence: event.sequence,
-                span: startSpan('graph-engine.batch', {'graph_engine.epoch': event.epoch}),
+                span: startSpan('graphora.batch', {'graphora.epoch': event.epoch}),
               });
             }
             break;
@@ -112,8 +112,8 @@ export function createOpenTelemetryPlugin<Span extends OpenTelemetrySpanLike, Co
           case 'batch-completed':
             if (event.depth === 1 && outermostBatchSequence !== undefined) {
               endSpan(outermostBatchSequence, (span) => {
-                span.setAttribute('graph_engine.batch.changed_nodes', event.changedNodeIds.length);
-                span.setAttribute('graph_engine.batch.deferred_tasks', event.deferredTaskCount);
+                span.setAttribute('graphora.batch.changed_nodes', event.changedNodeIds.length);
+                span.setAttribute('graphora.batch.deferred_tasks', event.deferredTaskCount);
 
                 if (event.failed) {
                   span.setStatus({code: SPAN_STATUS_ERROR, message: 'Batch failed'});
@@ -126,20 +126,20 @@ export function createOpenTelemetryPlugin<Span extends OpenTelemetrySpanLike, Co
           case 'computation-started':
             openSpans.push({
               sequence: event.sequence,
-              span: startSpan(`graph-engine.${event.nodeKind}`, {
-                'graph_engine.node.id': event.nodeId,
-                'graph_engine.node.kind': event.nodeKind,
-                'graph_engine.epoch': event.epoch,
+              span: startSpan(`graphora.${event.nodeKind}`, {
+                'graphora.node.id': event.nodeId,
+                'graphora.node.kind': event.nodeKind,
+                'graphora.epoch': event.epoch,
               }),
             });
             break;
 
           case 'computation-completed':
             endSpan(event.startedSequence, (span) => {
-              span.setAttribute('graph_engine.duration_ms', event.durationMs);
+              span.setAttribute('graphora.duration_ms', event.durationMs);
 
               if (event.valueChanged !== undefined) {
-                span.setAttribute('graph_engine.value_changed', event.valueChanged);
+                span.setAttribute('graphora.value_changed', event.valueChanged);
               }
 
               if (event.status === 'error') {
@@ -153,20 +153,20 @@ export function createOpenTelemetryPlugin<Span extends OpenTelemetrySpanLike, Co
 
           case 'node-changed':
             if (recordInvalidations) {
-              openSpans.at(-1)?.span.addEvent('graph-engine.node-changed', {
-                'graph_engine.node.id': event.nodeId,
-                'graph_engine.node.version': event.version,
+              openSpans.at(-1)?.span.addEvent('graphora.node-changed', {
+                'graphora.node.id': event.nodeId,
+                'graphora.node.version': event.version,
               });
             }
             break;
 
           case 'node-invalidated':
             if (recordInvalidations) {
-              openSpans.at(-1)?.span.addEvent('graph-engine.node-invalidated', {
-                'graph_engine.node.id': event.nodeId,
-                'graph_engine.source.id': event.reason.sourceNodeId,
-                'graph_engine.producer.id': event.reason.producerNodeId,
-                'graph_engine.path': event.reason.path.join(' > '),
+              openSpans.at(-1)?.span.addEvent('graphora.node-invalidated', {
+                'graphora.node.id': event.nodeId,
+                'graphora.source.id': event.reason.sourceNodeId,
+                'graphora.producer.id': event.reason.producerNodeId,
+                'graphora.path': event.reason.path.join(' > '),
               });
             }
             break;

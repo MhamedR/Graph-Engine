@@ -1,10 +1,10 @@
-# graph-engine
+# Graphora
 
 ## Unreleased
 
 ### Changed
 
-- Separated low-level reactive primitives into the `graph-engine/advanced` subpath.
+- Separated low-level reactive primitives into the `graphora/advanced` subpath.
 - Hardened runtime disposal, scheduler errors, runtime ownership, and node identity.
 - Made deep and wide reactive updates scale predictably with a stable computation-depth limit.
 - Added package-level consumer smoke tests and production release checks.
@@ -15,8 +15,8 @@
   to synchronous schedulers.
 - Added executable performance regression budgets to CI.
 - Added `runtime.use()` plugins, computation events, and a versioned event schema.
-- Added `graph-engine/opentelemetry`, `graph-engine/inspector` (with MCP
-  helpers), `graph-engine/devtools`, and `graph-engine/store` integration
+- Added `graphora/opentelemetry`, `graphora/inspector` (with MCP
+  helpers), `graphora/devtools`, and `graphora/store` integration
   subpaths with no runtime dependencies.
 - Published benchmark results as CI artifacts and job summaries.
 

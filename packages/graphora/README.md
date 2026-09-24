@@ -1,4 +1,4 @@
-# graph-engine
+# Graphora
 
 A dependency-free, ESM-only TypeScript library for directed graph analysis and
 deterministic push/pull reactivity.
@@ -11,13 +11,13 @@ deterministic push/pull reactivity.
 ## Install
 
 ```bash
-npm install graph-engine
+npm install graphora
 ```
 
 ## Directed graphs
 
 ```ts
-import {DirectedGraph, Node, hasPath, topologicalSort} from 'graph-engine/graph';
+import {DirectedGraph, Node, hasPath, topologicalSort} from 'graphora/graph';
 
 const graph = new DirectedGraph<{label: string}>();
 graph.addNode(new Node('build', {label: 'Build'}));
@@ -40,7 +40,7 @@ import {
   ReactiveEffect,
   ReactiveRuntime,
   ReactiveValue,
-} from 'graph-engine/reactive';
+} from 'graphora/reactive';
 
 const runtime = new ReactiveRuntime();
 const count = new ReactiveValue(runtime, 'count', 1);
@@ -84,15 +84,15 @@ work is still unsettled.
 
 ## Entry points
 
-- `graph-engine` — application graph and reactive APIs
-- `graph-engine/graph` — graph-only API
-- `graph-engine/reactive` — reactive-only API
-- `graph-engine/advanced` — low-level reactive graph primitives for adapters
-- `graph-engine/store` — `useSyncExternalStore`-compatible stores for React,
+- `graphora` — application graph and reactive APIs
+- `graphora/graph` — graph-only API
+- `graphora/reactive` — reactive-only API
+- `graphora/advanced` — low-level reactive graph primitives for adapters
+- `graphora/store` — `useSyncExternalStore`-compatible stores for React,
   Vue, Svelte, and Solid
-- `graph-engine/opentelemetry` — batches and computations as OpenTelemetry spans
-- `graph-engine/inspector` — read-only inspection tools, ready for MCP servers
-- `graph-engine/devtools` — transport-agnostic devtools message bridge
+- `graphora/opentelemetry` — batches and computations as OpenTelemetry spans
+- `graphora/inspector` — read-only inspection tools, ready for MCP servers
+- `graphora/devtools` — transport-agnostic devtools message bridge
 
 The advanced subpath is not needed by ordinary applications. Integrations have
 no runtime dependencies; bring your own React, tracer, or MCP SDK.
@@ -101,7 +101,7 @@ no runtime dependencies; bring your own React, tracer, or MCP SDK.
 
 ```ts
 import {useSyncExternalStore} from 'react';
-import {createExternalStore, createMicrotaskScheduler} from 'graph-engine/store';
+import {createExternalStore, createMicrotaskScheduler} from 'graphora/store';
 
 const doubledStore = createExternalStore(runtime, doubled, {
   scheduler: createMicrotaskScheduler(),

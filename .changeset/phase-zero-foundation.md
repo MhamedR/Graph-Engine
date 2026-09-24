@@ -1,8 +1,8 @@
 ---
-'graph-engine': major
+'graphora': major
 ---
 
-Separate low-level reactive primitives into `graph-engine/advanced`.
+Separate low-level reactive primitives into `graphora/advanced`.
 
 Harden runtime disposal, runtime ownership, scheduler and batch error
 semantics, duplicate IDs, queued changes, deep-chain behavior, and dependency

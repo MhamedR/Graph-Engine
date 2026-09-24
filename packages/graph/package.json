@@ -1,5 +1,5 @@
 {
-  "name": "graph-engine-graph",
+  "name": "graphora-graph",
   "version": "1.0.0",
   "private": true,
   "description": "Directed graph primitives and analysis algorithms.",
@@ -8,6 +8,6 @@
   "types": "./index.ts",
   "sideEffects": false,
   "dependencies": {
-    "graph-engine-data-structures": "*"
+    "graphora-data-structures": "*"
   }
 }

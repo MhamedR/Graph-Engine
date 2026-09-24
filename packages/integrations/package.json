@@ -1,11 +1,11 @@
 {
-  "name": "graph-engine-integrations",
+  "name": "graphora-integrations",
   "version": "1.0.0",
   "private": true,
-  "description": "Observability, tooling, and framework integrations for graph-engine.",
+  "description": "Observability, tooling, and framework integrations for graphora.",
   "type": "module",
   "sideEffects": false,
   "dependencies": {
-    "graph-engine-reactive": "*"
+    "graphora-reactive": "*"
   }
 }
