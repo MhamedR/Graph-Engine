@@ -1,6 +1,6 @@
 {
   "name": "graph-engine",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Framework-agnostic directed graph and reactive engine for TypeScript.",
   "type": "module",
   "main": "./dist/graph-engine/index.js",
