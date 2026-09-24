@@ -33,8 +33,8 @@ import {ReactiveRuntime} from 'graphora/reactive';
 
 Integration subpaths have no runtime dependencies:
 
-| Subpath                      | Purpose                                                                |
-| ---------------------------- | ---------------------------------------------------------------------- |
+| Subpath                  | Purpose                                                                |
+| ------------------------ | ---------------------------------------------------------------------- |
 | `graphora/store`         | `useSyncExternalStore`-compatible stores for React, Vue, Svelte, Solid |
 | `graphora/opentelemetry` | batches and computations as OpenTelemetry spans                        |
 | `graphora/inspector`     | read-only inspection tools and MCP adapter helpers                     |
