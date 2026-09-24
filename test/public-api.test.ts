@@ -7,24 +7,24 @@
 
 import * as graphApi from '../packages/graph/index.js';
 import * as reactiveApi from '../packages/reactive/index.js';
-import * as publicApi from '../packages/graph-engine/index.js';
-import * as advancedApi from '../packages/graph-engine/advanced.js';
-import * as opentelemetryApi from '../packages/graph-engine/opentelemetry.js';
-import * as inspectorApi from '../packages/graph-engine/inspector.js';
-import * as devtoolsApi from '../packages/graph-engine/devtools.js';
-import * as storeApi from '../packages/graph-engine/store.js';
-import type {OpenTelemetryPluginOptions} from '../packages/graph-engine/opentelemetry.js';
-import type {InspectorTool, McpToolResult} from '../packages/graph-engine/inspector.js';
-import type {DevtoolsOutgoingMessage} from '../packages/graph-engine/devtools.js';
-import type {ReactiveExternalStore} from '../packages/graph-engine/store.js';
+import * as publicApi from '../packages/graphora/index.js';
+import * as advancedApi from '../packages/graphora/advanced.js';
+import * as opentelemetryApi from '../packages/graphora/opentelemetry.js';
+import * as inspectorApi from '../packages/graphora/inspector.js';
+import * as devtoolsApi from '../packages/graphora/devtools.js';
+import * as storeApi from '../packages/graphora/store.js';
+import type {OpenTelemetryPluginOptions} from '../packages/graphora/opentelemetry.js';
+import type {InspectorTool, McpToolResult} from '../packages/graphora/inspector.js';
+import type {DevtoolsOutgoingMessage} from '../packages/graphora/devtools.js';
+import type {ReactiveExternalStore} from '../packages/graphora/store.js';
 import {
   DirectedGraph,
   Node,
   ReactiveRuntime,
   ReactiveValue,
   stronglyConnectedComponents,
-} from '../packages/graph-engine/index.js';
-import type {ReactiveNodeKind, ReactiveNodeState} from '../packages/graph-engine/advanced.js';
+} from '../packages/graphora/index.js';
+import type {ReactiveNodeKind, ReactiveNodeState} from '../packages/graphora/advanced.js';
 import {assert} from './assert.js';
 
 /**
@@ -50,7 +50,7 @@ import type {
   ReactiveRuntimeState,
   ReactiveComputationCompletedEvent,
   ReactiveTraceQuery,
-} from '../packages/graph-engine/index.js';
+} from '../packages/graphora/index.js';
 
 /**
  * Runtime values exported by the graph public entry point.

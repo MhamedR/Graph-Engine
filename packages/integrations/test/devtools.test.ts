@@ -40,7 +40,7 @@ async function testBridgeLifecycle(): Promise<void> {
   const hello = messages[0];
   ensure(hello?.type === 'hello', 'installation should announce the runtime');
   ensure(hello.snapshot.graph.nodes.length === 2, 'hello should include a graph snapshot');
-  ensure(hello.tools.includes('graph_engine_explain'), 'hello should list available tools');
+  ensure(hello.tools.includes('graphora_explain'), 'hello should list available tools');
 
   source.value = 2;
   source.value = 3;
@@ -56,7 +56,7 @@ async function testBridgeLifecycle(): Promise<void> {
   );
 
   ensure(
-    bridge.receive(request('app', 'r1', 'graph_engine_explain', {nodeId: 'doubled'})),
+    bridge.receive(request('app', 'r1', 'graphora_explain', {nodeId: 'doubled'})),
     'requests for this runtime should be handled',
   );
   const response = messages.at(-1);
@@ -65,7 +65,7 @@ async function testBridgeLifecycle(): Promise<void> {
     'requests should produce successful responses',
   );
 
-  bridge.receive(request('app', 'r2', 'graph_engine_explain', {nodeId: 'missing'}));
+  bridge.receive(request('app', 'r2', 'graphora_explain', {nodeId: 'missing'}));
   const failure = messages.at(-1);
   ensure(
     failure?.type === 'response' && !failure.ok && failure.error?.includes('missing') === true,
@@ -74,7 +74,7 @@ async function testBridgeLifecycle(): Promise<void> {
 
   const countBefore = messages.length;
   ensure(
-    !bridge.receive(request('other', 'r3', 'graph_engine_describe')),
+    !bridge.receive(request('other', 'r3', 'graphora_describe')),
     'other runtimes are ignored',
   );
   ensure(!bridge.receive({protocol: 'unrelated'}), 'other protocols are ignored');
@@ -84,7 +84,7 @@ async function testBridgeLifecycle(): Promise<void> {
   uninstall();
   ensure(messages.at(-1)?.type === 'goodbye', 'removal should say goodbye');
 
-  bridge.receive(request('app', 'r4', 'graph_engine_describe'));
+  bridge.receive(request('app', 'r4', 'graphora_describe'));
   const late = messages.at(-1);
   ensure(late?.type === 'response' && !late.ok, 'requests after removal should fail clearly');
 }

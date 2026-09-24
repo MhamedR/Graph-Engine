@@ -1,8 +1,8 @@
 {
-  "name": "graph-engine-workspace",
+  "name": "graphora-workspace",
   "version": "2.0.0",
   "private": true,
-  "description": "Workspace for the graph-engine TypeScript packages.",
+  "description": "Workspace for the graphora TypeScript packages.",
   "type": "module",
   "packageManager": "npm@11.13.0",
   "engines": {
@@ -12,11 +12,11 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "tsx packages/graph-engine/index.ts",
-    "clean": "rm -rf dist packages/graph-engine/dist",
-    "build": "npm run clean && tsc -p packages/graph-engine/tsconfig.build.json",
+    "dev": "tsx packages/graphora/index.ts",
+    "clean": "rm -rf dist packages/graphora/dist",
+    "build": "npm run clean && tsc -p packages/graphora/tsconfig.build.json",
     "typecheck": "tsc --noEmit && tsc --noEmit -p test/tsconfig.json",
-    "start": "node packages/graph-engine/dist/graph-engine/index.js",
+    "start": "node packages/graphora/dist/graphora/index.js",
     "test:queue": "tsx packages/data-structures/test/queue.test.ts",
     "test:graph": "tsx packages/graph/test/directed-graph.test.ts && tsx packages/graph/test/strongly-connected-components.test.ts",
     "test:algorithms": "tsx packages/graph/test/algorithms.test.ts",

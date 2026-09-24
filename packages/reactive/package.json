@@ -1,13 +1,13 @@
 {
-  "name": "graph-engine-reactive",
+  "name": "graphora-reactive",
   "version": "1.0.0",
   "private": true,
-  "description": "Push/pull reactive runtime for graph-engine.",
+  "description": "Push/pull reactive runtime for graphora.",
   "type": "module",
   "main": "./index.ts",
   "types": "./index.ts",
   "sideEffects": false,
   "dependencies": {
-    "graph-engine-data-structures": "*"
+    "graphora-data-structures": "*"
   }
 }

@@ -10,7 +10,7 @@ import {
   ReactiveEffect,
   ReactiveRuntime,
   ReactiveValue,
-} from '../../graph-engine/index.js';
+} from '../../graphora/index.js';
 import {assert} from '../../../test/assert.js';
 
 /**

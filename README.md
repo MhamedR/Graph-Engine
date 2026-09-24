@@ -1,4 +1,4 @@
-# Graph Engine
+# Graphora
 
 A framework-agnostic TypeScript library with two related subsystems:
 
@@ -7,10 +7,10 @@ A framework-agnostic TypeScript library with two related subsystems:
 
 The package is ESM-only, supports Node.js 20 and newer, and has no runtime dependencies.
 
-This repository is an npm workspace. Internal packages live under `packages/`. The published package is `graph-engine`.
+This repository is an npm workspace. Internal packages live under `packages/`. The published package is `graphora`.
 
 ```bash
-npm install graph-engine
+npm install graphora
 ```
 
 ```ts
@@ -21,24 +21,24 @@ import {
   ReactiveEffect,
   ReactiveRuntime,
   ReactiveValue,
-} from 'graph-engine';
+} from 'graphora';
 ```
 
 Subpath imports are also published:
 
 ```ts
-import {DirectedGraph} from 'graph-engine/graph';
-import {ReactiveRuntime} from 'graph-engine/reactive';
+import {DirectedGraph} from 'graphora/graph';
+import {ReactiveRuntime} from 'graphora/reactive';
 ```
 
 Integration subpaths have no runtime dependencies:
 
 | Subpath                      | Purpose                                                                |
 | ---------------------------- | ---------------------------------------------------------------------- |
-| `graph-engine/store`         | `useSyncExternalStore`-compatible stores for React, Vue, Svelte, Solid |
-| `graph-engine/opentelemetry` | batches and computations as OpenTelemetry spans                        |
-| `graph-engine/inspector`     | read-only inspection tools and MCP adapter helpers                     |
-| `graph-engine/devtools`      | transport-agnostic devtools message bridge                             |
+| `graphora/store`         | `useSyncExternalStore`-compatible stores for React, Vue, Svelte, Solid |
+| `graphora/opentelemetry` | batches and computations as OpenTelemetry spans                        |
+| `graphora/inspector`     | read-only inspection tools and MCP adapter helpers                     |
+| `graphora/devtools`      | transport-agnostic devtools message bridge                             |
 
 See [docs/RECIPES.md](docs/RECIPES.md) for framework, OpenTelemetry, MCP, and
 devtools setup, and [docs/API.md](docs/API.md) for the full API.
@@ -200,7 +200,7 @@ These low-level types remain available, but application code should rarely use t
 Low-level reactive primitives use the explicit advanced entry point:
 
 ```ts
-import {ReactiveNode} from 'graph-engine/advanced';
+import {ReactiveNode} from 'graphora/advanced';
 ```
 
 Diagnostics (`inspect()`, `createGraphSnapshot()`) are for debugging, not the hot path.
@@ -212,7 +212,7 @@ npm test          # correctness suite (package tests + public API)
 npm run test:coverage
 npm run typecheck
 npm run lint
-npm run build     # production emit of packages/graph-engine, tests excluded
+npm run build     # production emit of packages/graphora, tests excluded
 npm run package:smoke
 npm run ci        # lint + format + types + coverage + perf + build + package smoke
 npm run bench     # local performance baseline

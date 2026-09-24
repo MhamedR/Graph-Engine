@@ -1,5 +1,5 @@
 /**
- * Advanced extension API for graph-engine.
+ * Advanced extension API for graphora.
  *
  * This subpath is intentionally separate from the application-focused package
  * root so low-level runtime primitives can evolve under an explicit boundary.

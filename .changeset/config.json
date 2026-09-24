@@ -8,10 +8,10 @@
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
   "ignore": [
-    "graph-engine-data-structures",
-    "graph-engine-graph",
-    "graph-engine-integrations",
-    "graph-engine-reactive"
+    "graphora-data-structures",
+    "graphora-graph",
+    "graphora-integrations",
+    "graphora-reactive"
   ],
   "privatePackages": {
     "version": false,
