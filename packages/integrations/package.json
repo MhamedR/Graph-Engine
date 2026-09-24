@@ -1,0 +1,11 @@
+{
+  "name": "graph-engine-integrations",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Observability, tooling, and framework integrations for graph-engine.",
+  "type": "module",
+  "sideEffects": false,
+  "dependencies": {
+    "graph-engine-reactive": "*"
+  }
+}

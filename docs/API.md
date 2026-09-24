@@ -1,7 +1,9 @@
 # Public API
 
 Graph Engine is ESM-only and supports Node.js 20 and newer. Public APIs are
-available through four package entry points.
+available through eight package entry points: the root, `graph`, `reactive`,
+`advanced`, and the integration subpaths `opentelemetry`, `inspector`,
+`devtools`, and `store`. Integration recipes are in [RECIPES.md](RECIPES.md).
 
 ## `graph-engine`
 
@@ -62,7 +64,17 @@ missing. Topological sorting throws for cyclic graphs.
 - `ReactiveRuntime.subscribe(listener)`
 - `ReactiveRuntime.getTrace(query?)`
 - `ReactiveRuntime.clearTrace()`
+- `ReactiveRuntime.isObserved`
 - `diffReactiveGraphSnapshots()`
+
+### Plugins
+
+- `ReactiveRuntime.use(plugin)` installs a `ReactiveRuntimePlugin` and returns
+  an idempotent uninstall callback. Names must be unique per runtime.
+- `ReactiveRuntime.pluginNames` lists installed plugins in order.
+- Plugin cleanup runs in reverse installation order on uninstall or runtime
+  disposal, after nodes are disposed. Cleanup errors are rethrown by
+  `dispose()` after every plugin has been cleaned up.
 
 Pass `{traceBufferSize}` to `ReactiveRuntime` to retain a bounded event history.
 Without a buffer or live subscriber, event creation and timestamp collection
@@ -72,7 +84,19 @@ source-to-node invalidation path; its reason sequence is undefined when no
 matching event was emitted.
 
 Runtime event types are `node-registered`, `node-disposed`, `node-changed`,
-`node-invalidated`, `batch-started`, and `batch-completed`.
+`node-invalidated`, `batch-started`, `batch-completed`, `computation-started`,
+and `computation-completed`. Computation events cover each computed evaluation
+and effect run; completions reference their start by `startedSequence` and
+carry `durationMs`, `status`, `valueChanged` (computeds), and `error`.
+
+The event shapes are versioned by `REACTIVE_EVENT_SCHEMA_VERSION` (currently
+`1`). New event types and fields may be added within a version; removing or
+changing a field increments it. Consumers should ignore unknown event types.
+
+Listeners run with dependency tracking suspended. Observing a runtime adds
+event construction and timing to every computation, roughly doubling
+recomputation cost on Node.js 24 in the regression suite; unobserved runtimes
+skip that work.
 
 Snapshots include node kinds. Snapshot diffs distinguish added, removed, and
 changed edges; an edge is changed when its captured version or stale state
@@ -91,6 +115,43 @@ The advanced entry point contains low-level reactive graph primitives:
 Use this subpath only when implementing adapters or runtime extensions. Its
 surface is explicit and contract-tested, but changes require more care than
 the application API.
+
+## Integration subpaths
+
+All integrations are dependency-free and use only the public reactive API.
+
+### `graph-engine/opentelemetry`
+
+- `createOpenTelemetryPlugin({tracer, parentContext?, recordInvalidations?, name?})`
+  exports batches and computations as spans. `tracer` is structurally typed
+  against OpenTelemetry's `Tracer`.
+
+### `graph-engine/inspector`
+
+- `createInspectorTools(runtime, {maxResults?})` returns six read-only tools
+  with JSON Schema input: `graph_engine_describe`, `graph_engine_list_nodes`,
+  `graph_engine_explain`, `graph_engine_dependencies`, `graph_engine_trace`,
+  and `graph_engine_snapshot`.
+- `callInspectorTool(tools, name, input)` validates and runs a tool, throwing
+  `InspectorInputError` on invalid input.
+- `toMcpTools(tools)` and `callMcpTool(tools, params)` produce MCP `tools/list`
+  definitions and `tools/call` results. Failures become `isError` results.
+
+### `graph-engine/devtools`
+
+- `createDevtoolsBridge({runtimeId, send, delivery?, maxQueuedEvents?, maxResults?})`
+  returns a plugin with `receive(message)`. The protocol is identified by
+  `DEVTOOLS_PROTOCOL` and `DEVTOOLS_PROTOCOL_VERSION`; messages are `hello`,
+  `events`, `response`, and `goodbye`, and clients send `request`.
+
+### `graph-engine/store`
+
+- `createExternalStore(runtime, source, {id?, scheduler?})` returns
+  `{subscribe, getSnapshot, listenerCount, disposed, dispose}` compatible with
+  React's `useSyncExternalStore`. The store observes its source only while it
+  has listeners.
+- `toSvelteStore(store)` adapts a store to the Svelte store contract.
+- `createMicrotaskScheduler(onError?)` notifies without explicit flushing.
 
 ## Reactive constraints
 

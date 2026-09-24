@@ -7,6 +7,7 @@
     "packages/data-structures/**/*.ts",
     "packages/graph/**/*.ts",
     "packages/reactive/**/*.ts",
+    "packages/integrations/**/*.ts",
     "packages/graph-engine/**/*.ts",
     "benchmarks/**/*.ts"
   ],

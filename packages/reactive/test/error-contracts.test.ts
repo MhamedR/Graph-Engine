@@ -219,6 +219,39 @@ function testDisposedValueReadAndWriteErrors(): void {
   );
 }
 
+/**
+ * Verifies that a consumer which observed a failing computed is invalidated
+ * again when the failing computed's sources change.
+ */
+function testConsumerOfFailedComputedIsInvalidatedAgain(): void {
+  const runtime = new ReactiveRuntime();
+  const input = new ReactiveValue(runtime, 'input', 1);
+  const checked = new ReactiveComputed(runtime, 'checked', () => {
+    if (input.value < 0) throw new Error('negative');
+    return input.value;
+  });
+  const observed: string[] = [];
+  const effect = new ReactiveEffect(runtime, 'effect', () => {
+    try {
+      observed.push(String(checked.value));
+    } catch {
+      observed.push('error');
+    }
+  });
+
+  effect.run();
+  input.value = -1;
+  runtime.flush();
+  input.value = 2;
+  runtime.flush();
+
+  assert(
+    observed.join(',') === '1,error,2',
+    'a consumer should rerun when a previously failing computed can recover',
+  );
+}
+
+testConsumerOfFailedComputedIsInvalidatedAgain();
 testDisposedRuntimeRejectsBatching();
 testComputedRejectsSelfRead();
 testComputedCyclePropagates();

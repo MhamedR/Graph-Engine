@@ -25,6 +25,26 @@
       "types": "./dist/graph-engine/advanced.d.ts",
       "import": "./dist/graph-engine/advanced.js",
       "default": "./dist/graph-engine/advanced.js"
+    },
+    "./opentelemetry": {
+      "types": "./dist/graph-engine/opentelemetry.d.ts",
+      "import": "./dist/graph-engine/opentelemetry.js",
+      "default": "./dist/graph-engine/opentelemetry.js"
+    },
+    "./inspector": {
+      "types": "./dist/graph-engine/inspector.d.ts",
+      "import": "./dist/graph-engine/inspector.js",
+      "default": "./dist/graph-engine/inspector.js"
+    },
+    "./devtools": {
+      "types": "./dist/graph-engine/devtools.d.ts",
+      "import": "./dist/graph-engine/devtools.js",
+      "default": "./dist/graph-engine/devtools.js"
+    },
+    "./store": {
+      "types": "./dist/graph-engine/store.d.ts",
+      "import": "./dist/graph-engine/store.js",
+      "default": "./dist/graph-engine/store.js"
     }
   },
   "files": [

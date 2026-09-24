@@ -1,4 +1,13 @@
 import type {ReactiveNodeKind} from './reactive-node.js';
+import type {ReactiveRuntime} from './reactive-runtime.js';
+
+/**
+ * Version of the runtime event and explanation shapes.
+ *
+ * Integrations that persist or transmit events should record this value.
+ * It changes only when an existing field is removed or changes meaning.
+ */
+export const REACTIVE_EVENT_SCHEMA_VERSION = 1;
 
 /**
  * Configuration for runtime event capture.
@@ -71,6 +80,31 @@ export interface ReactiveBatchCompletedEvent extends ReactiveRuntimeEventBase {
 }
 
 /**
+ * Node kinds whose user callbacks are evaluated by the runtime.
+ */
+export type ReactiveComputationKind = Exclude<ReactiveNodeKind, 'value'>;
+
+export interface ReactiveComputationStartedEvent extends ReactiveRuntimeEventBase {
+  readonly type: 'computation-started';
+  readonly nodeId: string;
+  readonly nodeKind: ReactiveComputationKind;
+}
+
+export interface ReactiveComputationCompletedEvent extends ReactiveRuntimeEventBase {
+  readonly type: 'computation-completed';
+  readonly nodeId: string;
+  readonly nodeKind: ReactiveComputationKind;
+  /** Sequence of the matching `computation-started` event. */
+  readonly startedSequence: number;
+  readonly durationMs: number;
+  readonly status: 'success' | 'error';
+  /** Whether a computed produced a new value; undefined for effects and failures. */
+  readonly valueChanged: boolean | undefined;
+  /** Error message when the callback threw. */
+  readonly error: string | undefined;
+}
+
+/**
  * Structured events emitted by a ReactiveRuntime.
  */
 export type ReactiveRuntimeEvent =
@@ -79,7 +113,26 @@ export type ReactiveRuntimeEvent =
   | ReactiveNodeChangedEvent
   | ReactiveNodeInvalidatedEvent
   | ReactiveBatchStartedEvent
-  | ReactiveBatchCompletedEvent;
+  | ReactiveBatchCompletedEvent
+  | ReactiveComputationStartedEvent
+  | ReactiveComputationCompletedEvent;
+
+/**
+ * Discriminant of every runtime event.
+ */
+export type ReactiveRuntimeEventType = ReactiveRuntimeEvent['type'];
+
+/**
+ * Extension installed into a runtime with `runtime.use()`.
+ *
+ * `install` may return a cleanup callback. Cleanup runs when the plugin is
+ * removed or when the runtime is disposed, in reverse installation order.
+ */
+export interface ReactiveRuntimePlugin {
+  /** Unique plugin name within one runtime. */
+  readonly name: string;
+  install(runtime: ReactiveRuntime): void | (() => void);
+}
 
 /**
  * Listener for live runtime events.

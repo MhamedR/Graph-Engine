@@ -11,3 +11,15 @@ export function assert(condition: boolean, message: string): void {
     throw new Error(`Assertion failed: ${message}`);
   }
 }
+
+/**
+ * Asserts that a condition is truthy and narrows its type.
+ *
+ * Kept separate from {@link assert} because narrowing breaks assertions on
+ * values that are mutated inside callbacks.
+ */
+export function ensure(condition: unknown, message: string): asserts condition {
+  if (!condition) {
+    throw new Error(`Assertion failed: ${message}`);
+  }
+}

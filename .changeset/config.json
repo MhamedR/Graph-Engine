@@ -7,7 +7,12 @@
   "access": "public",
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
-  "ignore": ["graph-engine-data-structures", "graph-engine-graph", "graph-engine-reactive"],
+  "ignore": [
+    "graph-engine-data-structures",
+    "graph-engine-graph",
+    "graph-engine-integrations",
+    "graph-engine-reactive"
+  ],
   "privatePackages": {
     "version": false,
     "tag": false

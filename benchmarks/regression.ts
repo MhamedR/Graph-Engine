@@ -1,9 +1,12 @@
+/// <reference types="node" />
+
 /**
  * Stable performance budgets for operations whose complexity is part of the
  * public quality contract. Budgets are intentionally conservative enough for
  * shared CI runners while still detecting accidental quadratic regressions.
  */
 
+import {appendFileSync, writeFileSync} from 'node:fs';
 import {DirectedGraph, Node, breadthFirstSearch} from '../packages/graph/index.js';
 import {
   ReactiveComputed,
@@ -134,27 +137,107 @@ const cases: RegressionCase[] = [
   },
 ];
 
-const failures: string[] = [];
+const tracedRuntime = new ReactiveRuntime({traceBufferSize: 1_024});
+tracedRuntime.subscribe(() => undefined);
+const tracedSource = new ReactiveValue(tracedRuntime, 'traced-source', 0);
+const tracedComputeds: ReactiveComputed<number>[] = [];
+let tracedVersion = 0;
+
+for (let index = 0; index < computedWidth; index++) {
+  const computed = new ReactiveComputed(
+    tracedRuntime,
+    `traced-${index}`,
+    () => tracedSource.value + index,
+  );
+  tracedComputeds.push(computed);
+  void computed.value;
+}
+
+cases.push({
+  name: `recompute ${computedWidth.toLocaleString()} wide dependencies with tracing`,
+  operationCount: computedWidth,
+  budgetMilliseconds: 250,
+  reset: () => {
+    tracedSource.value = ++tracedVersion;
+  },
+  run: () => {
+    for (const computed of tracedComputeds) void computed.value;
+  },
+});
+
+interface RegressionResult {
+  readonly name: string;
+  readonly medianMilliseconds: number;
+  readonly budgetMilliseconds: number;
+  readonly operationsPerSecond: number;
+  readonly passed: boolean;
+}
+
+const results: RegressionResult[] = [];
 
 console.log('Performance regression budgets');
 console.log('------------------------------');
 
 for (const testCase of cases) {
   const milliseconds = measure(testCase);
-  const status = milliseconds <= testCase.budgetMilliseconds ? 'PASS' : 'FAIL';
+  const passed = milliseconds <= testCase.budgetMilliseconds;
   const operationsPerSecond = (testCase.operationCount / milliseconds) * 1_000;
 
+  results.push({
+    name: testCase.name,
+    medianMilliseconds: Number(milliseconds.toFixed(3)),
+    budgetMilliseconds: testCase.budgetMilliseconds,
+    operationsPerSecond: Math.round(operationsPerSecond),
+    passed,
+  });
+
   console.log(
-    `${status} ${testCase.name}: ${milliseconds.toFixed(2)} ms ` +
+    `${passed ? 'PASS' : 'FAIL'} ${testCase.name}: ${milliseconds.toFixed(2)} ms ` +
       `(${operationsPerSecond.toFixed(0)} ops/s, budget ${testCase.budgetMilliseconds} ms)`,
   );
-
-  if (status === 'FAIL') {
-    failures.push(
-      `${testCase.name} took ${milliseconds.toFixed(2)} ms; budget is ${testCase.budgetMilliseconds} ms`,
-    );
-  }
 }
+
+const report = {
+  node: process.version,
+  platform: `${process.platform}-${process.arch}`,
+  commit: process.env['GITHUB_SHA'],
+  timestamp: new Date().toISOString(),
+  results,
+};
+
+const jsonPath = process.env['BENCH_JSON_OUTPUT'];
+if (jsonPath !== undefined && jsonPath !== '') {
+  writeFileSync(jsonPath, `${JSON.stringify(report, undefined, 2)}\n`);
+}
+
+const summaryPath = process.env['GITHUB_STEP_SUMMARY'];
+if (summaryPath !== undefined && summaryPath !== '') {
+  const rows = results.map(
+    (result) =>
+      `| ${result.passed ? '✅' : '❌'} | ${result.name} | ${result.medianMilliseconds.toFixed(2)} | ` +
+      `${result.budgetMilliseconds} | ${((result.medianMilliseconds / result.budgetMilliseconds) * 100).toFixed(1)}% | ` +
+      `${result.operationsPerSecond.toLocaleString('en-US')} |`,
+  );
+
+  appendFileSync(
+    summaryPath,
+    [
+      `### Performance budgets (${report.node}, ${report.platform})`,
+      '',
+      '| | Case | Median ms | Budget ms | Budget used | Ops/s |',
+      '| --- | --- | ---: | ---: | ---: | ---: |',
+      ...rows,
+      '',
+    ].join('\n'),
+  );
+}
+
+const failures = results
+  .filter((result) => !result.passed)
+  .map(
+    (result) =>
+      `${result.name} took ${result.medianMilliseconds.toFixed(2)} ms; budget is ${result.budgetMilliseconds} ms`,
+  );
 
 if (failures.length > 0) {
   throw new Error(`Performance regression detected:\n${failures.join('\n')}`);

@@ -105,10 +105,14 @@ export class ReactiveComputed<T> {
     activeComputedDepth++;
 
     let nextValue: T;
+    const trace = this.runtime.traceComputationStart(this.node, 'computed');
 
     try {
       // Execute the computation while dependency tracking is active.
       nextValue = this.compute();
+    } catch (error) {
+      this.runtime.traceComputationEnd(this.node, 'computed', trace, {failed: true, error});
+      throw error;
     } finally {
       // Always leave the computing state, even when the computation throws.
       this.node.endComputation();
@@ -156,6 +160,11 @@ export class ReactiveComputed<T> {
 
     // Record the producer versions observed by this computation.
     this.node.synchronizeProducerVersions();
+
+    this.runtime.traceComputationEnd(this.node, 'computed', trace, {
+      failed: false,
+      valueChanged,
+    });
 
     return this._value as T;
   }

@@ -88,8 +88,33 @@ work is still unsettled.
 - `graph-engine/graph` — graph-only API
 - `graph-engine/reactive` — reactive-only API
 - `graph-engine/advanced` — low-level reactive graph primitives for adapters
+- `graph-engine/store` — `useSyncExternalStore`-compatible stores for React,
+  Vue, Svelte, and Solid
+- `graph-engine/opentelemetry` — batches and computations as OpenTelemetry spans
+- `graph-engine/inspector` — read-only inspection tools, ready for MCP servers
+- `graph-engine/devtools` — transport-agnostic devtools message bridge
 
-The advanced subpath is not needed by ordinary applications.
+The advanced subpath is not needed by ordinary applications. Integrations have
+no runtime dependencies; bring your own React, tracer, or MCP SDK.
+
+## Integrations
+
+```ts
+import {useSyncExternalStore} from 'react';
+import {createExternalStore, createMicrotaskScheduler} from 'graph-engine/store';
+
+const doubledStore = createExternalStore(runtime, doubled, {
+  scheduler: createMicrotaskScheduler(),
+});
+
+function Doubled() {
+  return <>{useSyncExternalStore(doubledStore.subscribe, doubledStore.getSnapshot)}</>;
+}
+```
+
+Plugins extend a runtime with `runtime.use(plugin)`. OpenTelemetry export,
+MCP servers, devtools, and framework recipes are documented in the repository's
+`docs/RECIPES.md`.
 
 ## Lifecycle and constraints
 

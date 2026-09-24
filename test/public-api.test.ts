@@ -9,6 +9,14 @@ import * as graphApi from '../packages/graph/index.js';
 import * as reactiveApi from '../packages/reactive/index.js';
 import * as publicApi from '../packages/graph-engine/index.js';
 import * as advancedApi from '../packages/graph-engine/advanced.js';
+import * as opentelemetryApi from '../packages/graph-engine/opentelemetry.js';
+import * as inspectorApi from '../packages/graph-engine/inspector.js';
+import * as devtoolsApi from '../packages/graph-engine/devtools.js';
+import * as storeApi from '../packages/graph-engine/store.js';
+import type {OpenTelemetryPluginOptions} from '../packages/graph-engine/opentelemetry.js';
+import type {InspectorTool, McpToolResult} from '../packages/graph-engine/inspector.js';
+import type {DevtoolsOutgoingMessage} from '../packages/graph-engine/devtools.js';
+import type {ReactiveExternalStore} from '../packages/graph-engine/store.js';
 import {
   DirectedGraph,
   Node,
@@ -38,7 +46,9 @@ import type {
   ReactiveRuntimeEvent,
   ReactiveRuntimeOptions,
   ReactiveRuntimeInspection,
+  ReactiveRuntimePlugin,
   ReactiveRuntimeState,
+  ReactiveComputationCompletedEvent,
   ReactiveTraceQuery,
 } from '../packages/graph-engine/index.js';
 
@@ -70,6 +80,7 @@ const REACTIVE_RUNTIME_EXPORTS = [
   'ReactiveEffect',
   'ReactiveRuntime',
   'ReactiveScheduler',
+  'REACTIVE_EVENT_SCHEMA_VERSION',
   'ReactiveValue',
   'diffReactiveGraphSnapshots',
 ] as const;
@@ -80,6 +91,22 @@ const ADVANCED_RUNTIME_EXPORTS = [
   'ReactiveLink',
   'ReactiveNode',
 ] as const;
+
+/**
+ * Runtime values exported by each integration subpath.
+ */
+const INTEGRATION_RUNTIME_EXPORTS = {
+  opentelemetry: ['createOpenTelemetryPlugin'],
+  inspector: [
+    'InspectorInputError',
+    'callInspectorTool',
+    'callMcpTool',
+    'createInspectorTools',
+    'toMcpTools',
+  ],
+  devtools: ['DEVTOOLS_PROTOCOL', 'DEVTOOLS_PROTOCOL_VERSION', 'createDevtoolsBridge'],
+  store: ['createExternalStore', 'createMicrotaskScheduler', 'toSvelteStore'],
+} as const;
 
 /**
  * Returns the sorted runtime export names of a module namespace.
@@ -156,6 +183,21 @@ function testPublicRuntimeExportFreeze(): void {
     runtimeExportNames(advancedApi).join(',') === exportKey(ADVANCED_RUNTIME_EXPORTS),
     'advanced subpath should expose exactly the low-level reactive primitives',
   );
+
+  const integrationApis = {
+    opentelemetry: opentelemetryApi,
+    inspector: inspectorApi,
+    devtools: devtoolsApi,
+    store: storeApi,
+  };
+
+  for (const [name, expected] of Object.entries(INTEGRATION_RUNTIME_EXPORTS)) {
+    assert(
+      runtimeExportNames(integrationApis[name as keyof typeof integrationApis]).join(',') ===
+        exportKey(expected),
+      `${name} subpath should match its frozen runtime exports`,
+    );
+  }
 }
 
 /**
@@ -184,6 +226,16 @@ function testPublicTypeExports(): void {
         ReactiveTraceQuery,
         ReactiveNodeKind,
         ReactiveNodeState,
+        ReactiveRuntimePlugin,
+        ReactiveComputationCompletedEvent,
+        OpenTelemetryPluginOptions<
+          {setAttribute(): void; addEvent(): void; setStatus(): void; end(): void},
+          never
+        >,
+        InspectorTool,
+        McpToolResult,
+        DevtoolsOutgoingMessage,
+        ReactiveExternalStore<number>,
       ]
     | undefined = undefined;
 

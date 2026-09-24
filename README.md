@@ -31,6 +31,18 @@ import {DirectedGraph} from 'graph-engine/graph';
 import {ReactiveRuntime} from 'graph-engine/reactive';
 ```
 
+Integration subpaths have no runtime dependencies:
+
+| Subpath                      | Purpose                                                                |
+| ---------------------------- | ---------------------------------------------------------------------- |
+| `graph-engine/store`         | `useSyncExternalStore`-compatible stores for React, Vue, Svelte, Solid |
+| `graph-engine/opentelemetry` | batches and computations as OpenTelemetry spans                        |
+| `graph-engine/inspector`     | read-only inspection tools and MCP adapter helpers                     |
+| `graph-engine/devtools`      | transport-agnostic devtools message bridge                             |
+
+See [docs/RECIPES.md](docs/RECIPES.md) for framework, OpenTelemetry, MCP, and
+devtools setup, and [docs/API.md](docs/API.md) for the full API.
+
 ## Graph
 
 `DirectedGraph<T>` stores `Node<T>` instances by ID and directed edges in bidirectional adjacency maps. Duplicate edges are ignored. Missing-node queries throw. Structural mutations advance `graph.version`. The default payload type is `string`; omit the payload to use the node ID.
@@ -153,6 +165,16 @@ are not created.
 Graph snapshots include node kinds. `diffReactiveGraphSnapshots()` reports
 added, removed, and changed nodes and edges; changed edges capture version or
 staleness transitions.
+
+Computed evaluations and effect runs emit `computation-started` and
+`computation-completed` events with duration, status, and whether the value
+changed. Event shapes are versioned by `REACTIVE_EVENT_SCHEMA_VERSION`.
+
+### Plugins
+
+`runtime.use(plugin)` installs an extension and returns an idempotent uninstall
+callback. Plugin cleanup runs in reverse order when the runtime is disposed.
+The OpenTelemetry exporter and devtools bridge are plugins.
 
 ### Errors
 

@@ -69,6 +69,21 @@ if (!hasPath(graph, 'a', 'b') || doubled.value !== 4) {
 if (!(new ManualEffectScheduler()) || !(new ReactiveNode('advanced'))) {
   throw new Error('Packed subpath smoke test failed.');
 }
+
+const {createExternalStore} = await import('graph-engine/store');
+const {createInspectorTools, toMcpTools} = await import('graph-engine/inspector');
+const {createDevtoolsBridge} = await import('graph-engine/devtools');
+const {createOpenTelemetryPlugin} = await import('graph-engine/opentelemetry');
+
+const store = createExternalStore(runtime, doubled);
+const tools = createInspectorTools(runtime);
+const messages = [];
+runtime.use(createDevtoolsBridge({runtimeId: 'smoke', send: (message) => messages.push(message)}));
+runtime.use(createOpenTelemetryPlugin({tracer: {startSpan: () => ({setAttribute() {}, addEvent() {}, setStatus() {}, end() {}})}}));
+
+if (store.getSnapshot() !== 4 || toMcpTools(tools).length !== 6 || messages[0]?.type !== 'hello') {
+  throw new Error('Packed integration subpath smoke test failed.');
+}
 `,
   );
   run(process.execPath, ['consumer.mjs'], temporaryDirectory);
@@ -79,6 +94,10 @@ if (!(new ManualEffectScheduler()) || !(new ReactiveNode('advanced'))) {
 import {DirectedGraph, Node, ReactiveRuntime, ReactiveValue} from 'graph-engine';
 import type {ReactiveRuntimeInspection} from 'graph-engine/reactive';
 import type {ReactiveNodeKind} from 'graph-engine/advanced';
+import {createExternalStore, type ReactiveExternalStore} from 'graph-engine/store';
+import type {McpToolResult} from 'graph-engine/inspector';
+import type {DevtoolsOutgoingMessage} from 'graph-engine/devtools';
+import type {OpenTelemetrySpanLike} from 'graph-engine/opentelemetry';
 
 const graph = new DirectedGraph<{name: string}>();
 graph.addNode(new Node('user', {name: 'Ada'}));
@@ -87,10 +106,18 @@ const runtime = new ReactiveRuntime();
 const value = new ReactiveValue(runtime, 'value', 1);
 const inspection: ReactiveRuntimeInspection = runtime.inspect();
 const kind: ReactiveNodeKind = value.node.kind;
+const store: ReactiveExternalStore<number> = createExternalStore(runtime, value);
+const result: McpToolResult | undefined = undefined;
+const message: DevtoolsOutgoingMessage | undefined = undefined;
+const span: OpenTelemetrySpanLike | undefined = undefined;
 
 void graph;
 void inspection;
 void kind;
+void store;
+void result;
+void message;
+void span;
 `,
   );
   await writeFile(

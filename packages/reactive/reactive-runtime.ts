@@ -10,13 +10,35 @@ import {
   ReactiveGraphSnapshotNode,
 } from './reactive-graph-snapshot.js';
 import {
+  ReactiveComputationKind,
   ReactiveInvalidationReason,
   ReactiveNodeExplanation,
   ReactiveRuntimeEvent,
   ReactiveRuntimeEventListener,
   ReactiveRuntimeOptions,
+  ReactiveRuntimePlugin,
   ReactiveTraceQuery,
 } from './reactive-events.js';
+
+/**
+ * Token returned when a traced computation starts.
+ *
+ * @internal
+ */
+export interface ReactiveComputationTrace {
+  readonly sequence: number;
+  readonly startedAt: number;
+}
+
+function describeError(error: unknown): string {
+  if (error instanceof Error) return error.message;
+
+  try {
+    return String(error);
+  } catch {
+    return 'Unknown error';
+  }
+}
 
 type ReactiveRuntimeEventInput = ReactiveRuntimeEvent extends infer Event
   ? Event extends ReactiveRuntimeEvent
@@ -198,8 +220,12 @@ export class ReactiveRuntime {
    */
   private readonly afterBatchTasks = new Set<() => void>();
   private readonly traceBufferSize: number;
-  private readonly traceEvents: ReactiveRuntimeEvent[] = [];
+  /** Ring buffer of retained events; `traceStart` is the oldest slot. */
+  private readonly traceEvents: (ReactiveRuntimeEvent | undefined)[] = [];
+  private traceStart = 0;
+  private traceCount = 0;
   private readonly eventListeners = new Set<ReactiveRuntimeEventListener>();
+  private readonly plugins = new Map<string, () => void>();
   private readonly invalidationReasons = new Map<ReactiveNode, ReactiveInvalidationReason>();
   private _eventSequence = 0;
   private _eventListenerErrorCount = 0;
@@ -248,7 +274,17 @@ export class ReactiveRuntime {
       throw new RangeError('limit must be a non-negative safe integer.');
     }
 
-    return this.traceEvents.filter((event) => event.sequence > sinceSequence).slice(0, limit);
+    const events: ReactiveRuntimeEvent[] = [];
+
+    for (let offset = 0; offset < this.traceCount && events.length < limit; offset++) {
+      const event = this.traceEvents[(this.traceStart + offset) % this.traceBufferSize];
+
+      if (event !== undefined && event.sequence > sinceSequence) {
+        events.push(event);
+      }
+    }
+
+    return events;
   }
 
   /**
@@ -256,6 +292,95 @@ export class ReactiveRuntime {
    */
   clearTrace(): void {
     this.traceEvents.length = 0;
+    this.traceStart = 0;
+    this.traceCount = 0;
+  }
+
+  /**
+   * Installs a plugin.
+   *
+   * @returns An idempotent callback that removes the plugin and runs its cleanup.
+   * @throws {Error} If the runtime is disposed or a plugin with the same name
+   * is already installed.
+   */
+  use(plugin: ReactiveRuntimePlugin): () => void {
+    if (this._disposed) {
+      throw new Error('Cannot install a plugin on a disposed runtime.');
+    }
+
+    if (this.plugins.has(plugin.name)) {
+      throw new Error(`Reactive runtime plugin "${plugin.name}" is already installed.`);
+    }
+
+    const cleanup = plugin.install(this);
+    let installed = true;
+    const uninstall = (): void => {
+      if (!installed) return;
+      installed = false;
+      this.plugins.delete(plugin.name);
+      cleanup?.();
+    };
+
+    this.plugins.set(plugin.name, uninstall);
+    return uninstall;
+  }
+
+  /**
+   * Returns the names of installed plugins in installation order.
+   */
+  get pluginNames(): readonly string[] {
+    return [...this.plugins.keys()];
+  }
+
+  /**
+   * Whether events are currently being produced for a trace buffer or
+   * subscriber. Integrations can use this to skip optional diagnostic work.
+   */
+  get isObserved(): boolean {
+    return this.traceBufferSize > 0 || this.eventListeners.size > 0;
+  }
+
+  /**
+   * Records the start of a computed or effect callback.
+   *
+   * @internal Used by ReactiveComputed and ReactiveEffect.
+   */
+  traceComputationStart(
+    node: ReactiveNode,
+    kind: ReactiveComputationKind,
+  ): ReactiveComputationTrace | undefined {
+    if (!this.isObserved) return undefined;
+
+    const startedAt = performance.now();
+    const sequence = this.emitEvent({type: 'computation-started', nodeId: node.id, nodeKind: kind});
+    return {sequence, startedAt};
+  }
+
+  /**
+   * Records the end of a computed or effect callback.
+   *
+   * @internal Used by ReactiveComputed and ReactiveEffect.
+   */
+  traceComputationEnd(
+    node: ReactiveNode,
+    kind: ReactiveComputationKind,
+    trace: ReactiveComputationTrace | undefined,
+    outcome:
+      | {readonly failed: false; readonly valueChanged?: boolean}
+      | {readonly failed: true; readonly error: unknown},
+  ): void {
+    if (trace === undefined || !this.isObserved) return;
+
+    this.emitEvent({
+      type: 'computation-completed',
+      nodeId: node.id,
+      nodeKind: kind,
+      startedSequence: trace.sequence,
+      durationMs: performance.now() - trace.startedAt,
+      status: outcome.failed ? 'error' : 'success',
+      valueChanged: outcome.failed ? undefined : outcome.valueChanged,
+      error: outcome.failed ? describeError(outcome.error) : undefined,
+    });
   }
 
   /**
@@ -281,7 +406,7 @@ export class ReactiveRuntime {
   }
 
   private get emitsEvents(): boolean {
-    return this.traceBufferSize > 0 || this.eventListeners.size > 0;
+    return this.isObserved;
   }
 
   private emitEvent(input: ReactiveRuntimeEventInput): number {
@@ -294,20 +419,33 @@ export class ReactiveRuntime {
     } as ReactiveRuntimeEvent;
 
     if (this.traceBufferSize > 0) {
-      this.traceEvents.push(event);
-
-      if (this.traceEvents.length > this.traceBufferSize) {
-        this.traceEvents.shift();
+      if (this.traceCount < this.traceBufferSize) {
+        this.traceEvents[(this.traceStart + this.traceCount) % this.traceBufferSize] = event;
+        this.traceCount++;
+      } else {
+        this.traceEvents[this.traceStart] = event;
+        this.traceStart = (this.traceStart + 1) % this.traceBufferSize;
       }
     }
 
-    const listeners = Array.from(this.eventListeners);
+    if (this.eventListeners.size === 0) return sequence;
 
-    for (const listener of listeners) {
-      try {
-        listener(event);
-      } catch {
-        this._eventListenerErrorCount++;
+    const listeners = Array.from(this.eventListeners);
+    // Listeners must never become dependencies of the computation being traced.
+    const activeConsumer = this.context.activeConsumer;
+    this.context.clearActiveConsumer();
+
+    try {
+      for (const listener of listeners) {
+        try {
+          listener(event);
+        } catch {
+          this._eventListenerErrorCount++;
+        }
+      }
+    } finally {
+      if (activeConsumer !== undefined) {
+        this.context.setActiveConsumer(activeConsumer);
       }
     }
 
@@ -564,7 +702,7 @@ export class ReactiveRuntime {
       batchDepth: this.batchDepth,
       deferredBatchTaskCount: this.deferredBatchTaskCount,
       eventSequence: this._eventSequence,
-      traceEventCount: this.traceEvents.length,
+      traceEventCount: this.traceCount,
       eventListenerCount: this.eventListeners.size,
       eventListenerErrorCount: this._eventListenerErrorCount,
     };
@@ -796,6 +934,19 @@ export class ReactiveRuntime {
 
     // Reset the batch depth as part of shutting down the runtime.
     this._batchDepth = 0;
+
+    // Plugins observe node disposal events, so they are removed last.
+    for (const uninstall of [...this.plugins.values()].reverse()) {
+      try {
+        uninstall();
+      } catch (error) {
+        if (!hasError) {
+          firstError = error;
+          hasError = true;
+        }
+      }
+    }
+
     this.eventListeners.clear();
 
     if (hasError) {

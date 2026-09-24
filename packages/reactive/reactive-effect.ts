@@ -238,10 +238,14 @@ export class ReactiveEffect {
 
     // Make this effect the active consumer while its function executes.
     this.runtime.context.setActiveConsumer(this.node);
+    const trace = this.runtime.traceComputationStart(this.node, 'effect');
 
     try {
       // Execute the side effect while dependency tracking is active.
       this.effect();
+    } catch (error) {
+      this.runtime.traceComputationEnd(this.node, 'effect', trace, {failed: true, error});
+      throw error;
     } finally {
       // Always leave the computing state after execution.
       this.node.endComputation();
@@ -268,6 +272,8 @@ export class ReactiveEffect {
 
     // Record the producer versions observed by this execution.
     this.node.synchronizeProducerVersions();
+
+    this.runtime.traceComputationEnd(this.node, 'effect', trace, {failed: false});
   }
   /**
    * Determines whether the effect currently needs execution.

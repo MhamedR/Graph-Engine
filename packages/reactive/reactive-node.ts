@@ -408,6 +408,10 @@ export class ReactiveNode {
     // Record the current version of every tracked producer.
     for (const link of this.producers.values()) {
       link.markCurrent();
+
+      // A producer that is still dirty (for example, a computed that threw)
+      // now has a clean descendant, so the next change must traverse it again.
+      link.producer._dirtyPropagationComplete = false;
     }
 
     // The previously detected producer is no longer stale after synchronization.

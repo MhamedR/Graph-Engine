@@ -14,3 +14,13 @@
 - Added an explicit async scheduler and runtime rejection of async work passed
   to synchronous schedulers.
 - Added executable performance regression budgets to CI.
+- Added `runtime.use()` plugins, computation events, and a versioned event schema.
+- Added `graph-engine/opentelemetry`, `graph-engine/inspector` (with MCP
+  helpers), `graph-engine/devtools`, and `graph-engine/store` integration
+  subpaths with no runtime dependencies.
+- Published benchmark results as CI artifacts and job summaries.
+
+### Fixed
+
+- Consumers that observed a failing computed are invalidated again when the
+  computed's sources change.

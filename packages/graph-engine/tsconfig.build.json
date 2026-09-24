@@ -4,6 +4,12 @@
     "rootDir": "..",
     "outDir": "./dist"
   },
-  "include": ["*.ts", "../graph/**/*.ts", "../reactive/**/*.ts", "../data-structures/**/*.ts"],
+  "include": [
+    "*.ts",
+    "../graph/**/*.ts",
+    "../reactive/**/*.ts",
+    "../data-structures/**/*.ts",
+    "../integrations/**/*.ts"
+  ],
   "exclude": ["../**/test/**", "../**/dist/**", "node_modules"]
 }
