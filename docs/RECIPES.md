@@ -125,11 +125,11 @@ runtime.use(
 
 It records these spans:
 
-| Span                    | Covers                         | Key attributes                                                          |
-| ----------------------- | ------------------------------ | ----------------------------------------------------------------------- |
+| Span                | Covers                         | Key attributes                                                  |
+| ------------------- | ------------------------------ | --------------------------------------------------------------- |
 | `graphora.batch`    | an outermost `runtime.batch()` | `graphora.batch.changed_nodes`, `graphora.batch.deferred_tasks` |
 | `graphora.computed` | one computed evaluation        | `graphora.node.id`, `graphora.value_changed`                    |
-| `graphora.effect`   | one effect run                 | `graphora.node.id`                                                  |
+| `graphora.effect`   | one effect run                 | `graphora.node.id`                                              |
 
 Computations nest under the batch or computation that triggered them. Source
 changes and invalidations become span events carrying the causal path, for
@@ -162,8 +162,8 @@ scripts and CLIs; long-running services should use the SDK's Streamable HTTP
 transport. Create the runtime with a `traceBufferSize` so
 `graphora_trace` has history to return.
 
-| Tool                        | Purpose                                               |
-| --------------------------- | ----------------------------------------------------- |
+| Tool                    | Purpose                                               |
+| ----------------------- | ----------------------------------------------------- |
 | `graphora_describe`     | runtime state, graph metrics, plugins, schema version |
 | `graphora_list_nodes`   | nodes filtered by kind, dirty state, or ID prefix     |
 | `graphora_explain`      | one node's state and its latest invalidation path     |

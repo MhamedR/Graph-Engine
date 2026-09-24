@@ -35,12 +35,7 @@ sorting, and strongly connected components.
 ## Reactivity
 
 ```ts
-import {
-  ReactiveComputed,
-  ReactiveEffect,
-  ReactiveRuntime,
-  ReactiveValue,
-} from 'graphora/reactive';
+import {ReactiveComputed, ReactiveEffect, ReactiveRuntime, ReactiveValue} from 'graphora/reactive';
 
 const runtime = new ReactiveRuntime();
 const count = new ReactiveValue(runtime, 'count', 1);

@@ -169,10 +169,7 @@ function testMcpHelpers(): void {
 
 async function testMcpServerRoundTrip(): Promise<void> {
   const tools = createInspectorTools(createFixture());
-  const server = new Server(
-    {name: 'graphora-test', version: '1.0.0'},
-    {capabilities: {tools: {}}},
-  );
+  const server = new Server({name: 'graphora-test', version: '1.0.0'}, {capabilities: {tools: {}}});
 
   server.setRequestHandler(ListToolsRequestSchema, () => ({tools: toMcpTools(tools)}));
   server.setRequestHandler(CallToolRequestSchema, (request) => callMcpTool(tools, request.params));
