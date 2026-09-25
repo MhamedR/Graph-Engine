@@ -43,9 +43,11 @@ export {
 export {diffSnapshots, type AtlasDiff, type NodeChange} from './diff.js';
 
 export {
+  applyOffsets,
   labelWidth,
   layoutSnapshot,
   type AtlasLayout,
+  type NodeOffset,
   type PlacedEdge,
   type PlacedNode,
   type RankBand,

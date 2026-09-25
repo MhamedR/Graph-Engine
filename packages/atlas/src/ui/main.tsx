@@ -97,13 +97,14 @@ function Picture({
 }) {
   const snapshot = useStore(stores.snapshot);
   const selectedId = useStore(stores.selectedId);
+  const hoveredId = useStore(stores.hoveredId);
+  const draggingId = useStore(stores.draggingId);
   const lens = useStore(stores.lens);
   const query = useStore(stores.query);
   const reducedMotion = useStore(stores.reducedMotion);
   const emphasis = useStore(stores.emphasis);
   const layout = useStore(stores.layout);
   const stageRef = useRef<HTMLElement | null>(null);
-  const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [command, setCommand] = useState('');
 
   useLayoutEffect(() => {
@@ -168,6 +169,8 @@ function Picture({
 
   const buildOrder = useStore(stores.order);
   const selected = snapshot?.nodes.find((node) => node.id === selectedId) ?? null;
+  const hovered = snapshot?.nodes.find((node) => node.id === hoveredId) ?? null;
+  const hoveredPlace = layout?.nodes.find((node) => node.id === hoveredId) ?? null;
   const acyclic = buildOrder.kind === 'order';
   const question = lens === 'cycles' && acyclic ? CYCLE_CLEAR : LENS_QUESTION[lens];
   const filter = query.trim().toLowerCase();
@@ -224,7 +227,7 @@ function Picture({
             <p>{EMPTY_LINE}</p>
           </div>
         ) : layout && layout.nodes.length > 0 ? (
-          <Fitted layout={layout}>
+          <Fitted layout={layout} scale={pictureScale(layout)}>
             <Graph
               snapshot={snapshot}
               layoutNodes={layout.nodes}
@@ -232,15 +235,29 @@ function Picture({
               ranks={layout.ranks}
               width={layout.width}
               height={layout.height}
+              scale={pictureScale(layout)}
               emphasis={emphasis}
               selectedId={selectedId}
               hoveredId={hoveredId}
+              draggingId={draggingId}
               filter={filter}
               reducedMotion={reducedMotion}
-              onHover={setHoveredId}
+              onHover={(id) => session.setHovered(id)}
               onSelect={(id) => session.select(id)}
+              onDragStart={(id) => session.setDragging(id)}
+              onDragEnd={() => session.setDragging(null)}
+              onMove={(id, dx, dy) => session.moveNode(id, dx, dy)}
             />
           </Fitted>
+        ) : null}
+        {hovered && snapshot && draggingId === null ? (
+          <PackageTooltip
+            snapshot={snapshot}
+            node={hovered}
+            rank={hoveredPlace?.rank ?? null}
+            x={hoveredPlace?.x ?? 0}
+            y={hoveredPlace?.y ?? 0}
+          />
         ) : null}
       </main>
       <footer className="footer">
@@ -282,11 +299,21 @@ function Picture({
   );
 }
 
-function Fitted({layout, children}: {readonly layout: AtlasLayout; readonly children: ReactNode}) {
-  const fit =
-    layout.width > 0 && layout.height > 0
-      ? Math.min(1, layout.frameWidth / layout.width, layout.frameHeight / layout.height)
-      : 1;
+function pictureScale(layout: AtlasLayout): number {
+  if (layout.width <= 0 || layout.height <= 0) return 1;
+  return Math.min(1, layout.frameWidth / layout.width, layout.frameHeight / layout.height);
+}
+
+function Fitted({
+  layout,
+  scale,
+  children,
+}: {
+  readonly layout: AtlasLayout;
+  readonly scale: number;
+  readonly children: ReactNode;
+}) {
+  const fit = scale;
 
   return (
     <div className="fit" style={{width: layout.frameWidth, height: layout.frameHeight}}>
@@ -347,6 +374,89 @@ function Inspector({
   );
 }
 
+function PackageTooltip({
+  snapshot,
+  node,
+  rank,
+  x,
+  y,
+}: {
+  readonly snapshot: AtlasSnapshot;
+  readonly node: PackageNode;
+  readonly rank: number | null;
+  readonly x: number;
+  readonly y: number;
+}) {
+  const anchorRef = useRef<HTMLDivElement | null>(null);
+  const [box, setBox] = useState<{left: number; top: number; place: 'above' | 'below'} | null>(
+    null,
+  );
+
+  useLayoutEffect(() => {
+    const source = document.querySelector(`[data-node-id="${CSS.escape(node.id)}"]`);
+    const tip = anchorRef.current;
+    if (!(source instanceof HTMLElement) || !tip) return;
+
+    const sourceBox = source.getBoundingClientRect();
+    const tipBox = tip.getBoundingClientRect();
+    const above = sourceBox.top - tipBox.height - 10;
+    const place = above < 12 ? 'below' : 'above';
+    const top = place === 'above' ? above : sourceBox.bottom + 10;
+    const left = Math.min(Math.max(12, sourceBox.left), window.innerWidth - tipBox.width - 12);
+    setBox({left, top, place});
+  }, [node.id, rank, x, y]);
+
+  const incoming = snapshot.edges.filter((edge) => edge.to === node.id);
+  const outgoing = snapshot.edges.filter((edge) => edge.from === node.id);
+  const description = node.description.length > 0 ? node.description : 'No description.';
+
+  return (
+    <div
+      ref={anchorRef}
+      className="tooltip"
+      role="tooltip"
+      id="atlas-tooltip"
+      data-tooltip={node.id}
+      data-place={box?.place ?? 'below'}
+      style={{
+        left: box?.left ?? -9999,
+        top: box?.top ?? 0,
+        visibility: box ? 'visible' : 'hidden',
+      }}
+    >
+      <p className="tooltip-name">{node.id}</p>
+      <p className="tooltip-meta">
+        {node.version}
+        {rank === null ? '' : ` · rank ${rank}`}
+        {node.private ? ' · private' : ' · published'}
+      </p>
+      <p>{description}</p>
+      <p className="tooltip-path">{node.path}</p>
+      <p>
+        {incoming.length} in · {outgoing.length} out
+      </p>
+      {incoming.length > 0 ? (
+        <ul>
+          {incoming.map((edge) => (
+            <li key={edge.id}>
+              stands on {edge.from} · {edge.relation}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {outgoing.length > 0 ? (
+        <ul>
+          {outgoing.map((edge) => (
+            <li key={edge.id}>
+              before {edge.to} · {edge.relation}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
 function Graph({
   snapshot,
   layoutNodes,
@@ -354,13 +464,18 @@ function Graph({
   ranks,
   width,
   height,
+  scale,
   emphasis,
   selectedId,
   hoveredId,
+  draggingId,
   filter,
   reducedMotion,
   onHover,
   onSelect,
+  onDragStart,
+  onDragEnd,
+  onMove,
 }: {
   readonly snapshot: AtlasSnapshot;
   readonly layoutNodes: readonly PlacedNode[];
@@ -368,19 +483,33 @@ function Graph({
   readonly ranks: readonly {readonly index: number; readonly x: number; readonly width: number}[];
   readonly width: number;
   readonly height: number;
+  readonly scale: number;
   readonly emphasis: Emphasis;
   readonly selectedId: string | null;
   readonly hoveredId: string | null;
+  readonly draggingId: string | null;
   readonly filter: string;
   readonly reducedMotion: boolean;
   readonly onHover: (id: string | null) => void;
   readonly onSelect: (id: string) => void;
+  readonly onDragStart: (id: string) => void;
+  readonly onDragEnd: () => void;
+  readonly onMove: (id: string, dx: number, dy: number) => void;
 }) {
   const packages = new Map(snapshot.nodes.map((node) => [node.id, node]));
   const emphasizedNodes = new Set(emphasis.nodes);
   const emphasizedEdges = new Set(emphasis.edges);
   const nodeRefs = useRef(new Map<string, HTMLButtonElement>());
   const edgeRefs = useRef(new Map<string, SVGPathElement>());
+  const dragRef = useRef<{
+    id: string;
+    x: number;
+    y: number;
+    originX: number;
+    originY: number;
+    moved: boolean;
+  } | null>(null);
+  const suppressClick = useRef(false);
   const positions = useRef(new Map<string, {x: number; y: number; scale: number}>());
   const edgePaths = useRef(new Map<string, string>());
   const seenEmphasis = useRef<string | null>(null);
@@ -428,13 +557,19 @@ function Graph({
     for (const node of layoutNodes) {
       const element = nodeRefs.current.get(node.id);
       if (!element) continue;
-      const scale = node.id === selectedId ? 1.04 : 1;
-      const transform = `translate(${node.x}px, ${node.y}px) scale(${scale})`;
+      const nodeScale = node.id === selectedId ? 1.04 : 1;
+      const transform = `translate(${node.x}px, ${node.y}px) scale(${nodeScale})`;
       const previous = positions.current.get(node.id);
       element.style.transform = transform;
 
       if (reducedMotion) {
-        positions.current.set(node.id, {x: node.x, y: node.y, scale});
+        positions.current.set(node.id, {x: node.x, y: node.y, scale: nodeScale});
+        continue;
+      }
+
+      const dragging = draggingId !== null;
+      if (dragging) {
+        positions.current.set(node.id, {x: node.x, y: node.y, scale: nodeScale});
         continue;
       }
 
@@ -442,7 +577,7 @@ function Graph({
         play(
           element,
           [
-            {opacity: 0, transform: `translate(${node.x - 8}px, ${node.y}px) scale(${scale})`},
+            {opacity: 0, transform: `translate(${node.x - 8}px, ${node.y}px) scale(${nodeScale})`},
             {opacity: 1, transform},
           ],
           420,
@@ -451,10 +586,13 @@ function Graph({
       } else if (previous.x !== node.x || previous.y !== node.y) {
         play(
           element,
-          [{transform: `translate(${previous.x}px, ${previous.y}px) scale(${scale})`}, {transform}],
+          [
+            {transform: `translate(${previous.x}px, ${previous.y}px) scale(${nodeScale})`},
+            {transform},
+          ],
           480,
         );
-      } else if (previous.scale !== scale) {
+      } else if (previous.scale !== nodeScale) {
         play(
           element,
           [
@@ -465,7 +603,7 @@ function Graph({
         );
       }
 
-      positions.current.set(node.id, {x: node.x, y: node.y, scale});
+      positions.current.set(node.id, {x: node.x, y: node.y, scale: nodeScale});
     }
 
     const emphasisKey = emphasis.edges.join('\n');
@@ -480,7 +618,7 @@ function Graph({
       const previous = edgePaths.current.get(edge.id);
       const active = activeEdges.has(edge.id);
 
-      if (previous && previous !== next) {
+      if (previous && previous !== next && draggingId === null) {
         play(path, [{d: previous}, {d: next}], 480);
       }
 
@@ -511,7 +649,7 @@ function Graph({
     return () => {
       for (const animation of animations.current) animation.cancel();
     };
-  }, [curves, emphasis.edges, layoutEdges, layoutNodes, reducedMotion, selectedId]);
+  }, [curves, draggingId, emphasis.edges, layoutEdges, layoutNodes, reducedMotion, selectedId]);
 
   return (
     <div className="picture" style={{width, height}}>
@@ -577,6 +715,7 @@ function Graph({
         const pkg = packages.get(node.id);
         if (!pkg) return null;
         const selected = node.id === selectedId;
+        const dragging = node.id === draggingId;
         const dimmed = filter.length > 0 && !node.id.toLowerCase().includes(filter);
         const emphasized = emphasizedNodes.has(node.id);
         const opacity = dimmed ? 0.2 : emphasized || selected ? 1 : 0.4;
@@ -595,20 +734,78 @@ function Graph({
             data-dimmed={dimmed ? 'true' : 'false'}
             data-emphasized={emphasized ? 'true' : 'false'}
             data-private={pkg.private ? 'true' : 'false'}
+            data-dragging={dragging ? 'true' : 'false'}
             data-engine={
               !pkg.private && pkg.id === 'graphora' && selectedId === null ? 'true' : 'false'
             }
             data-hovered={hoveredId === node.id ? 'true' : 'false'}
+            aria-describedby={hoveredId === node.id ? 'atlas-tooltip' : undefined}
             style={{
               width: node.width,
               height: node.height,
               opacity,
               transform: `translate(${node.x}px, ${node.y}px) scale(${selected ? 1.04 : 1})`,
             }}
-            onMouseEnter={() => onHover(node.id)}
-            onMouseLeave={() => onHover(null)}
+            onPointerEnter={() => onHover(node.id)}
+            onPointerLeave={() => {
+              if (dragRef.current?.id === node.id) return;
+              onHover(null);
+            }}
+            onPointerDown={(event) => {
+              if (event.button !== 0) return;
+              event.preventDefault();
+              event.stopPropagation();
+              try {
+                event.currentTarget.setPointerCapture(event.pointerId);
+              } catch {
+                // A pointer that is not active cannot be captured. The move
+                // handlers still follow client coordinates.
+              }
+              dragRef.current = {
+                id: node.id,
+                x: event.clientX,
+                y: event.clientY,
+                originX: event.clientX,
+                originY: event.clientY,
+                moved: false,
+              };
+              onDragStart(node.id);
+            }}
+            onPointerMove={(event) => {
+              const drag = dragRef.current;
+              if (!drag || drag.id !== node.id) return;
+              const travel = Math.hypot(event.clientX - drag.originX, event.clientY - drag.originY);
+              if (!drag.moved && travel < 4) return;
+              drag.moved = true;
+              const picture = scale > 0 ? scale : 1;
+              const dx = (event.clientX - drag.x) / picture;
+              const dy = (event.clientY - drag.y) / picture;
+              drag.x = event.clientX;
+              drag.y = event.clientY;
+              onMove(node.id, dx, dy);
+            }}
+            onPointerUp={(event) => {
+              const drag = dragRef.current;
+              if (!drag || drag.id !== node.id) return;
+              dragRef.current = null;
+              onDragEnd();
+              if (drag.moved) suppressClick.current = true;
+              else onSelect(node.id);
+              if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                event.currentTarget.releasePointerCapture(event.pointerId);
+              }
+            }}
+            onPointerCancel={() => {
+              if (dragRef.current?.id !== node.id) return;
+              dragRef.current = null;
+              onDragEnd();
+            }}
             onClick={(event) => {
               event.stopPropagation();
+              if (suppressClick.current) {
+                suppressClick.current = false;
+                return;
+              }
               onSelect(node.id);
             }}
           >

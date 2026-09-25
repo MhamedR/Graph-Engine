@@ -43,6 +43,11 @@ export interface AtlasLayout {
   readonly frameHeight: number;
 }
 
+export interface NodeOffset {
+  readonly x: number;
+  readonly y: number;
+}
+
 const NODE_HEIGHT = 54;
 const NODE_GAP = 22;
 const RANK_GAP = 76;
@@ -190,6 +195,26 @@ export function layoutSnapshot(snapshot: AtlasSnapshot, viewport: Viewport): Atl
     frameWidth: width,
     frameHeight: height,
   };
+}
+
+/**
+ * Shifts placed nodes by session offsets. Rank bands and the frame stay put
+ * so a drag tracks the pointer instead of refitting the whole map.
+ */
+export function applyOffsets(
+  layout: AtlasLayout,
+  offsets: Readonly<Record<string, NodeOffset>>,
+): AtlasLayout {
+  let moved = false;
+  const nodes = layout.nodes.map((node) => {
+    const offset = offsets[node.id];
+    if (!offset || (offset.x === 0 && offset.y === 0)) return node;
+    moved = true;
+    return {...node, x: node.x + offset.x, y: node.y + offset.y};
+  });
+
+  if (!moved) return layout;
+  return {...layout, nodes};
 }
 
 function rankComponents(incoming: ReadonlyArray<ReadonlySet<number>>): number[] {

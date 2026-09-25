@@ -236,6 +236,14 @@ button {
   border: 1px solid var(--hairline);
   border-radius: 2px;
   transform-origin: center center;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.node[data-dragging='true'] {
+  z-index: 3;
+  cursor: grabbing;
 }
 
 .node[data-private='true'] {
@@ -267,6 +275,43 @@ button {
   color: var(--muted);
   font-size: 11px;
   letter-spacing: 0.06em;
+}
+
+.tooltip {
+  position: fixed;
+  z-index: 6;
+  width: min(280px, calc(100vw - 24px));
+  padding: 10px 12px 8px;
+  background: var(--node);
+  border: 1px solid var(--hairline);
+  pointer-events: none;
+}
+
+.tooltip-name {
+  margin: 0 0 4px;
+  font-family: var(--serif);
+  font-weight: 520;
+  font-size: 15px;
+  letter-spacing: -0.02em;
+}
+
+.tooltip-meta,
+.tooltip p,
+.tooltip li {
+  margin: 0 0 5px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.tooltip-path {
+  letter-spacing: 0.02em;
+}
+
+.tooltip ul {
+  margin: 2px 0 4px;
+  padding: 0;
+  list-style: none;
 }
 
 .inspector {

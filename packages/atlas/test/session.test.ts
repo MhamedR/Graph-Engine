@@ -1,7 +1,7 @@
 import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {test} from 'node:test';
-import {assert} from '../../../test/assert.js';
+import {assert, ensure} from '../../../test/assert.js';
 import {extractWorkspace} from '../src/extract-workspace.js';
 import {createAtlasSession, parseCommand} from '../src/session.js';
 
@@ -58,6 +58,22 @@ test('the session derives impact, upstream, and a stable layout', async () => {
     const layout = session.layout.value;
     session.setQuery('graph');
     assert(session.layout.value === layout, 'a filter does not move the layout');
+
+    const graphNode = layout?.nodes.find((node) => node.id === 'graphora-graph');
+    ensure(graphNode !== undefined, 'graph is placed');
+    session.moveNode('graphora-graph', 48, -16);
+    const dragged = session.layout.value?.nodes.find((node) => node.id === 'graphora-graph');
+    ensure(dragged !== undefined, 'the dragged node stays in the picture');
+    assert(
+      dragged.x === graphNode.x + 48 && dragged.y === graphNode.y - 16,
+      'a drag shifts the node',
+    );
+    assert(dragged.rank === graphNode.rank, 'a drag keeps the build rank');
+    const draggedLayout = session.layout.value;
+    assert(session.layout.value === draggedLayout, 'the dragged picture is cached');
+    assert(session.graph.value === structure, 'a drag does not rebuild the graph');
+    assert(draggedLayout?.ranks === layout?.ranks, 'rank bands stay while a node moves');
+
     session.setViewport({width: 1000, height: 700});
     assert(session.layout.value !== layout, 'viewport size recomputes the layout');
 

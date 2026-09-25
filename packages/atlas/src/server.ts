@@ -5,8 +5,10 @@
  * browser session is the only picture state after that.
  */
 
+import {spawn} from 'node:child_process';
 import {createServer, type IncomingMessage, type ServerResponse} from 'node:http';
 import {access, readFile} from 'node:fs/promises';
+import {platform} from 'node:os';
 import {dirname, join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import * as esbuild from 'esbuild';
@@ -37,9 +39,24 @@ async function main(): Promise<void> {
   });
 
   server.listen(port, '127.0.0.1', () => {
-    console.log(`graphora/atlas  http://127.0.0.1:${port}`);
+    const url = `http://127.0.0.1:${port}`;
+    console.log(`graphora/atlas  ${url}`);
     console.log(root);
+    openBrowser(url);
   });
+}
+
+function openBrowser(url: string): void {
+  if (process.env.CI === 'true' || process.argv.includes('--no-open')) return;
+
+  const system = platform();
+  const command = system === 'darwin' ? 'open' : system === 'win32' ? 'cmd' : 'xdg-open';
+  const args = system === 'win32' ? ['/c', 'start', '', url] : [url];
+  const child = spawn(command, args, {detached: true, stdio: 'ignore'});
+  child.on('error', () => {
+    console.error(`Open ${url} in a browser.`);
+  });
+  child.unref();
 }
 
 async function handle(
