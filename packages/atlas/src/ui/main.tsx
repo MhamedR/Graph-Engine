@@ -360,29 +360,30 @@ function Inspector({
   return (
     <section className="inspector" data-inspector>
       <p className="inspector-name">{node.id}</p>
-      {node.description.length > 0 ? (
-        <p>{node.description}</p>
-      ) : node.files && node.files.length > 0 ? null : (
-        <p>No description.</p>
-      )}
+      {node.description.length > 0 ? <p>{node.description}</p> : null}
+      <p>{node.path}</p>
       {node.files && node.files.length > 0 ? (
+        <div className="split">
+          <p className="split-label">Files</p>
+          <ul>
+            {node.files.map((file) => (
+              <li key={file}>{file}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      <div className="split">
+        <p className="split-label">
+          {incoming.size} in · {outgoing.size} out
+        </p>
         <ul>
-          {node.files.map((file) => (
-            <li key={file}>{file}</li>
+          {relations.map((edge) => (
+            <li key={edge.id}>
+              {edge.from} → {edge.to} {edge.relation}
+            </li>
           ))}
         </ul>
-      ) : null}
-      <p>{node.path}</p>
-      <p>
-        {incoming.size} in · {outgoing.size} out
-      </p>
-      <ul>
-        {relations.map((edge) => (
-          <li key={edge.id}>
-            {edge.from} → {edge.to} {edge.relation}
-          </li>
-        ))}
-      </ul>
+      </div>
     </section>
   );
 }
@@ -447,37 +448,42 @@ function PackageTooltip({
         {files.length > 0 ? '' : node.private ? ' · private' : ' · published'}
       </p>
       {description ? <p>{description}</p> : null}
-      {files.length > 0 ? (
-        <ul className="tooltip-files">
-          {files.map((file) => (
-            <li key={file}>{file}</li>
-          ))}
-        </ul>
-      ) : (
-        <p>No description.</p>
-      )}
       <p className="tooltip-path">{node.path}</p>
-      <p>
-        {incoming.length} in · {outgoing.length} out
-      </p>
-      {incoming.length > 0 ? (
-        <ul>
-          {incoming.map((edge) => (
-            <li key={edge.id}>
-              stands on {edge.from} · {edge.relation}
-            </li>
-          ))}
-        </ul>
+      {files.length > 0 ? (
+        <div className="split">
+          <p className="split-label">Files</p>
+          <ul className="tooltip-files">
+            {files.map((file) => (
+              <li key={file}>{file}</li>
+            ))}
+          </ul>
+        </div>
       ) : null}
-      {outgoing.length > 0 ? (
-        <ul>
-          {outgoing.map((edge) => (
-            <li key={edge.id}>
-              before {edge.to} · {edge.relation}
-            </li>
-          ))}
-        </ul>
-      ) : null}
+      <div className="split">
+        <p className="split-label">
+          {incoming.length} in · {outgoing.length} out
+        </p>
+        {incoming.length > 0 ? (
+          <ul>
+            {incoming.map((edge) => (
+              <li key={edge.id}>
+                <span className="tooltip-role">stands on</span> {edge.from}
+                <span className="tooltip-relation">{edge.relation}</span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        {outgoing.length > 0 ? (
+          <ul>
+            {outgoing.map((edge) => (
+              <li key={edge.id}>
+                <span className="tooltip-role">before</span> {edge.to}
+                <span className="tooltip-relation">{edge.relation}</span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
     </div>
   );
 }
