@@ -1,38 +1,35 @@
 name: Release
+
 on:
   push:
     branches: [main]
+
 permissions:
   contents: write
   id-token: write
   pull-requests: write
+
 concurrency:
   group: release-${{ github.ref }}
+
 jobs:
   release:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-          cache: npm
           registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
       - run: npm ci
-      - name: Configure npm auth
-        run: |
-          echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > ~/.npmrc
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-      - name: Check npm authentication
-        run: |
-          npm whoami
-          npm config get registry
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
       - uses: changesets/action@v2
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -40,5 +37,3 @@ jobs:
           publish-script: npm run release
           commit-message: 'chore: release packages'
           pr-title: 'chore: release packages'
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
