@@ -217,6 +217,7 @@ npm run package:smoke
 npm run ci        # lint + format + types + coverage + perf + build + package smoke
 npm run bench     # local performance baseline
 npm run bench:regression # executable CI performance budgets
+npm run atlas       # open graphora/atlas on this repository
 ```
 
 CI runs `npm run ci` on `main` and pull requests.
