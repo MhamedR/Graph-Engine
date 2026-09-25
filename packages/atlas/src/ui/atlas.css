@@ -314,6 +314,11 @@ button {
   list-style: none;
 }
 
+.tooltip-files {
+  max-height: 9.5em;
+  overflow: hidden;
+}
+
 .inspector {
   max-width: 188px;
 }

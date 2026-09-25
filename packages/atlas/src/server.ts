@@ -12,7 +12,7 @@ import {platform} from 'node:os';
 import {dirname, join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import * as esbuild from 'esbuild';
-import {extractWorkspace} from './extract-workspace.js';
+import {extractProject} from './extract-project.js';
 import type {AtlasBoot, AtlasSnapshot} from './model.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -78,7 +78,7 @@ async function handle(
     }
 
     if (url.pathname === '/api/snapshot') {
-      const snapshot = await extractWorkspace(assets.root);
+      const snapshot = await extractProject(assets.root);
       send(response, 200, 'application/json; charset=utf-8', JSON.stringify(snapshot));
       return;
     }
@@ -98,7 +98,7 @@ async function handle(
 
 async function bootPayload(root: string): Promise<AtlasBoot> {
   try {
-    const snapshot: AtlasSnapshot = await extractWorkspace(root);
+    const snapshot: AtlasSnapshot = await extractProject(root);
     return {root: snapshot.root, snapshot, error: null};
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

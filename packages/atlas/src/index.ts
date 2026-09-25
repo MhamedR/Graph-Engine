@@ -10,7 +10,9 @@ export {
   EMPTY_LINE,
   LENSES,
   LENS_QUESTION,
+  IMPORTS,
   READING_LINE,
+  SOURCE_LENS_QUESTION,
   WORKSPACE_DEPENDS,
   atlasEdgeId,
   isLens,
@@ -23,6 +25,8 @@ export {
   type Viewport,
 } from './model.js';
 
+export {extractProject} from './extract-project.js';
+export {extractSource} from './extract-source.js';
 export {extractWorkspace} from './extract-workspace.js';
 
 export {

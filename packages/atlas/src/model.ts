@@ -7,6 +7,7 @@
 
 export const WORKSPACE_DEPENDS = 'workspace-depends';
 export const BUNDLE_INCLUDES = 'bundle-includes';
+export const IMPORTS = 'imports';
 
 /**
  * Relation name carried by a snapshot edge.
@@ -28,6 +29,14 @@ export const LENS_QUESTION: Record<Lens, string> = {
   order: 'The schedule, and only the schedule.',
 };
 
+export const SOURCE_LENS_QUESTION: Record<Lens, string> = {
+  map: 'The source, in dependency order.',
+  impact: 'What must change if this part changes.',
+  upstream: 'What this part stands on.',
+  cycles: 'Where the order is impossible.',
+  order: 'The schedule, and only the schedule.',
+};
+
 export const DIRECTION_LINE = 'A → B means A must exist before B. Rank 0 has no incoming edge.';
 
 export const CYCLE_CLEAR = 'This workspace has a build order.';
@@ -42,6 +51,8 @@ export interface PackageNode {
   readonly private: boolean;
   readonly path: string;
   readonly description: string;
+  /** Source files inside a structure node. Package nodes omit this. */
+  readonly files?: readonly string[];
 }
 
 export interface AtlasEdge {
@@ -56,6 +67,8 @@ export interface AtlasSnapshot {
   readonly edges: readonly AtlasEdge[];
   readonly extractedAt: string;
   readonly root: string;
+  /** `source` is a src tree. Omitted snapshots are workspace package maps. */
+  readonly kind?: 'workspace' | 'source';
 }
 
 export interface AtlasBoot {

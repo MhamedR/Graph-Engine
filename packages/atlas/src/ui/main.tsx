@@ -19,6 +19,7 @@ import {
   EMPTY_LINE,
   LENSES,
   LENS_QUESTION,
+  SOURCE_LENS_QUESTION,
   READING_LINE,
   type AtlasBoot,
   type AtlasSnapshot,
@@ -172,7 +173,8 @@ function Picture({
   const hovered = snapshot?.nodes.find((node) => node.id === hoveredId) ?? null;
   const hoveredPlace = layout?.nodes.find((node) => node.id === hoveredId) ?? null;
   const acyclic = buildOrder.kind === 'order';
-  const question = lens === 'cycles' && acyclic ? CYCLE_CLEAR : LENS_QUESTION[lens];
+  const questions = snapshot?.kind === 'source' ? SOURCE_LENS_QUESTION : LENS_QUESTION;
+  const question = lens === 'cycles' && acyclic ? CYCLE_CLEAR : questions[lens];
   const filter = query.trim().toLowerCase();
 
   return (
@@ -358,7 +360,18 @@ function Inspector({
   return (
     <section className="inspector" data-inspector>
       <p className="inspector-name">{node.id}</p>
-      <p>{node.description.length > 0 ? node.description : 'No description.'}</p>
+      {node.description.length > 0 ? (
+        <p>{node.description}</p>
+      ) : node.files && node.files.length > 0 ? null : (
+        <p>No description.</p>
+      )}
+      {node.files && node.files.length > 0 ? (
+        <ul>
+          {node.files.map((file) => (
+            <li key={file}>{file}</li>
+          ))}
+        </ul>
+      ) : null}
       <p>{node.path}</p>
       <p>
         {incoming.size} in · {outgoing.size} out
@@ -408,7 +421,8 @@ function PackageTooltip({
 
   const incoming = snapshot.edges.filter((edge) => edge.to === node.id);
   const outgoing = snapshot.edges.filter((edge) => edge.from === node.id);
-  const description = node.description.length > 0 ? node.description : 'No description.';
+  const files = node.files ?? [];
+  const description = node.description.length > 0 ? node.description : null;
 
   return (
     <div
@@ -426,11 +440,22 @@ function PackageTooltip({
     >
       <p className="tooltip-name">{node.id}</p>
       <p className="tooltip-meta">
-        {node.version}
+        {files.length > 0
+          ? `${files.length} ${files.length === 1 ? 'file' : 'files'}`
+          : node.version}
         {rank === null ? '' : ` · rank ${rank}`}
-        {node.private ? ' · private' : ' · published'}
+        {files.length > 0 ? '' : node.private ? ' · private' : ' · published'}
       </p>
-      <p>{description}</p>
+      {description ? <p>{description}</p> : null}
+      {files.length > 0 ? (
+        <ul className="tooltip-files">
+          {files.map((file) => (
+            <li key={file}>{file}</li>
+          ))}
+        </ul>
+      ) : (
+        <p>No description.</p>
+      )}
       <p className="tooltip-path">{node.path}</p>
       <p>
         {incoming.length} in · {outgoing.length} out
@@ -716,7 +741,10 @@ function Graph({
         if (!pkg) return null;
         const selected = node.id === selectedId;
         const dragging = node.id === draggingId;
-        const dimmed = filter.length > 0 && !node.id.toLowerCase().includes(filter);
+        const dimmed =
+          filter.length > 0 &&
+          !node.id.toLowerCase().includes(filter) &&
+          !(pkg.files ?? []).some((file) => file.toLowerCase().includes(filter));
         const emphasized = emphasizedNodes.has(node.id);
         const opacity = dimmed ? 0.2 : emphasized || selected ? 1 : 0.4;
         return (
@@ -810,7 +838,11 @@ function Graph({
             }}
           >
             <span className="name">{pkg.id}</span>
-            <span className="version">{pkg.version}</span>
+            <span className="version">
+              {pkg.files && pkg.files.length > 0
+                ? `${pkg.files.length} ${pkg.files.length === 1 ? 'file' : 'files'}`
+                : pkg.version}
+            </span>
           </button>
         );
       })}

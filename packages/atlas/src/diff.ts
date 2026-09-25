@@ -61,6 +61,16 @@ function sameNode(before: PackageNode, after: PackageNode): boolean {
     before.version === after.version &&
     before.private === after.private &&
     before.path === after.path &&
-    before.description === after.description
+    before.description === after.description &&
+    sameFiles(before.files, after.files)
   );
+}
+
+function sameFiles(
+  before: readonly string[] | undefined,
+  after: readonly string[] | undefined,
+): boolean {
+  const left = before ?? [];
+  const right = after ?? [];
+  return left.length === right.length && left.every((file, index) => file === right[index]);
 }
