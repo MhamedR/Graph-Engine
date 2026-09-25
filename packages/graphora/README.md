@@ -1,36 +1,67 @@
 # Graphora
 
-A dependency-free, ESM-only TypeScript library for directed graph analysis and
-deterministic push/pull reactivity.
+Graphora is a dependency-free, ESM-only TypeScript library for directed graphs
+and deterministic push/pull reactivity. It does not ship a UI framework.
+Application code keeps its own Angular, React, Vue, Svelte, or Solid runtime
+and reads Graphora through a small store adapter.
 
-## Requirements
-
-- Node.js 20 or newer
-- An ESM project or ESM-aware bundler
-
-## Install
+Node.js 20 or newer is required. Bundlers must be able to load ESM.
 
 ```bash
 npm install graphora
 ```
 
+## What you get
+
+- A directed graph with adjacency indexes. Adding a node, and checking,
+  adding, or removing an edge, are **O(1)**.
+- A reactive runtime: writable values, lazy cached computeds, and scheduled
+  effects. A write dirties dependents immediately. A computed runs only when
+  something reads it.
+- Framework stores with no runtime dependencies. The same
+  `subscribe` / `getSnapshot` contract works in Angular, React, Vue, Svelte,
+  and Solid.
+
+```ts
+import {DirectedGraph, Node, ReactiveComputed, ReactiveRuntime, ReactiveValue} from 'graphora';
+```
+
 ## Directed graphs
+
+Nodes and edges live in maps, so structural lookups do not scan the graph.
+
+| Operation                                      | Complexity |
+| ---------------------------------------------- | ---------- |
+| `addNode`                                      | O(1)       |
+| `hasEdge`, `getEdge`, `addEdge`, `removeEdge`  | O(1)       |
+| `getOutDegree`, `getInDegree`                  | O(1)       |
+| `getOutgoing`, `getIncoming`                   | O(degree)  |
+| `removeNode`                                   | O(degree)  |
+| BFS, DFS, ancestors, descendants, reachability | O(n + e)   |
+
+`n` is the number of nodes and `e` is the number of edges. Duplicate edges are
+ignored. Missing-node queries throw. `hasPath(graph, id, id)` is true.
 
 ```ts
 import {DirectedGraph, Node, hasPath, topologicalSort} from 'graphora/graph';
 
-const graph = new DirectedGraph<{label: string}>();
-graph.addNode(new Node('build', {label: 'Build'}));
-graph.addNode(new Node('deploy', {label: 'Deploy'}));
-graph.addEdge('build', 'deploy');
+const pipeline = new DirectedGraph<{label: string}>();
+pipeline.addNode(new Node('lint', {label: 'Lint'}));
+pipeline.addNode(new Node('test', {label: 'Test'}));
+pipeline.addNode(new Node('publish', {label: 'Publish'}));
+pipeline.addEdge('lint', 'test');
+pipeline.addEdge('test', 'publish');
 
-hasPath(graph, 'build', 'deploy'); // true
-topologicalSort(graph).map((node) => node.id); // ['build', 'deploy']
+pipeline.hasEdge('lint', 'test'); // O(1), true
+pipeline.getOutDegree('test'); // O(1), 1
+hasPath(pipeline, 'lint', 'publish'); // true
+topologicalSort(pipeline).map((node) => node.id); // ['lint', 'test', 'publish']
 ```
 
-The graph uses incoming and outgoing adjacency indexes. It includes iterative
-BFS/DFS, reachability, ancestors, descendants, cycle detection, topological
-sorting, and strongly connected components.
+Also exported: iterative `breadthFirstSearch` and `depthFirstSearch`,
+`getReachableNodes`, `getAncestors`, `getDescendants`, `hasCycle`, and
+`stronglyConnectedComponents`. `topologicalSort` throws when the graph has a
+cycle.
 
 ## Reactivity
 
@@ -38,91 +69,199 @@ sorting, and strongly connected components.
 import {ReactiveComputed, ReactiveEffect, ReactiveRuntime, ReactiveValue} from 'graphora/reactive';
 
 const runtime = new ReactiveRuntime();
-const count = new ReactiveValue(runtime, 'count', 1);
-const doubled = new ReactiveComputed(runtime, 'doubled', () => count.value * 2);
-const observed: number[] = [];
+const price = new ReactiveValue(runtime, 'price', 20);
+const quantity = new ReactiveValue(runtime, 'quantity', 2);
+const total = new ReactiveComputed(runtime, 'total', () => price.value * quantity.value);
+
+const seen: number[] = [];
 const effect = new ReactiveEffect(runtime, 'observe', () => {
-  observed.push(doubled.value);
+  seen.push(total.value);
 });
 
-effect.run();
-count.value = 2;
-runtime.flush();
-
-observed; // [2, 4]
+effect.run(); // seen is [40]
+price.value = 25;
+runtime.flush(); // seen is [40, 50]
 ```
 
-Values push invalidation through the dependency graph. Computeds pull and
-cache their values lazily. Effects are scheduled deterministically and execute
-when their scheduler is flushed.
-
-### Explain invalidations
+Same-value writes (`Object.is` by default) do not invalidate. Computeds rebuild
+their dependencies on each run, so an unused branch is dropped. Effects do not
+run until `run()` or a scheduled flush. `runtime.batch()` can nest; scheduled
+effects wait until the outermost batch finishes, so several writes produce one
+effect run.
 
 ```ts
-const tracedRuntime = new ReactiveRuntime({traceBufferSize: 128});
+runtime.batch(() => {
+  price.value = 30;
+  quantity.value = 3;
+});
+runtime.flush(); // one effect run, total is 90
+```
 
-tracedRuntime.subscribe((event) => {
+Node IDs are unique inside one runtime. A dependency cannot cross runtimes.
+`dispose()` is idempotent. Computed evaluation is synchronous and stops after
+1,000 nested computeds. Graphora does not track state across `await`; use
+`AsyncReactiveScheduler` when the scheduled work itself is asynchronous.
+
+### Why a value changed
+
+```ts
+const traced = new ReactiveRuntime({traceBufferSize: 128});
+
+traced.subscribe((event) => {
   console.log(event.type, event.sequence);
 });
 
-tracedRuntime.explain('some-computed').invalidation?.path;
-tracedRuntime.getTrace({sinceSequence: 0, limit: 25});
+traced.explain('total').invalidation?.path;
+traced.getTrace({sinceSequence: 0, limit: 25});
 ```
 
-Tracing is bounded and opt-in. `explain()` returns the most recent causal
-source-to-node invalidation path even when event retention is disabled.
-Snapshots include node kinds, and snapshot diffs report changed edge state.
+`explain()` returns the latest causal path even when event retention is off.
+Pass `traceBufferSize` only when you want a bounded history.
 
-For asynchronous scheduled work, use `AsyncReactiveScheduler`. The synchronous
-schedulers reject promise-returning tasks so a flush cannot complete while
-work is still unsettled.
+## Angular, React, Vue, Svelte, and Solid
 
-## Entry points
+`graphora/store` does not import any of those frameworks. `createExternalStore`
+returns `{subscribe, getSnapshot}`. Pass `createMicrotaskScheduler()` when the
+view should update on its own. Without that scheduler, listeners run on
+`runtime.flush()`.
 
-- `graphora` — application graph and reactive APIs
-- `graphora/graph` — graph-only API
-- `graphora/reactive` — reactive-only API
-- `graphora/advanced` — low-level reactive graph primitives for adapters
-- `graphora/store` — `useSyncExternalStore`-compatible stores for React,
-  Vue, Svelte, and Solid
-- `graphora/opentelemetry` — batches and computations as OpenTelemetry spans
-- `graphora/inspector` — read-only inspection tools, ready for MCP servers
-- `graphora/devtools` — transport-agnostic devtools message bridge
-
-The advanced subpath is not needed by ordinary applications. Integrations have
-no runtime dependencies; bring your own React, tracer, or MCP SDK.
-
-## Integrations
+Create the store once and reuse it. It observes the source only while it has
+subscribers.
 
 ```ts
-import {useSyncExternalStore} from 'react';
 import {createExternalStore, createMicrotaskScheduler} from 'graphora/store';
 
-const doubledStore = createExternalStore(runtime, doubled, {
+const totalStore = createExternalStore(runtime, total, {
+  scheduler: createMicrotaskScheduler(),
+});
+```
+
+### Angular
+
+Bridge the store into a signal. Angular then updates the template when the
+signal changes.
+
+```ts
+import {DestroyRef, signal} from '@angular/core';
+import {createExternalStore, createMicrotaskScheduler} from 'graphora/store';
+
+const totalStore = createExternalStore(runtime, total, {
   scheduler: createMicrotaskScheduler(),
 });
 
-function Doubled() {
-  return <>{useSyncExternalStore(doubledStore.subscribe, doubledStore.getSnapshot)}</>;
+export class TotalComponent {
+  readonly total = signal(totalStore.getSnapshot());
+
+  constructor(destroyRef: DestroyRef) {
+    const stop = totalStore.subscribe(() => this.total.set(totalStore.getSnapshot()));
+    destroyRef.onDestroy(stop);
+  }
 }
 ```
 
-Plugins extend a runtime with `runtime.use(plugin)`. OpenTelemetry export,
-MCP servers, devtools, and framework recipes are documented in the repository's
-`docs/RECIPES.md`.
+```html
+<output>{{ total() }}</output>
+```
 
-## Lifecycle and constraints
+Write through the `ReactiveValue`, not through the signal. The store is
+read-only.
 
-- Reactive node IDs must be unique within one runtime.
-- Dependencies cannot cross runtime boundaries.
-- Runtime and primitive disposal are idempotent.
-- Computed evaluation is synchronous and limited to 1,000 nested computeds.
-- The package does not provide async tracking across `await`.
+### React
 
-## Development
+`subscribe` and `getSnapshot` match `useSyncExternalStore`.
 
-The repository README contains architecture details, scripts, benchmarks, and
-the complete behavioral contract.
+```tsx
+import {useSyncExternalStore} from 'react';
+
+export function Total() {
+  const value = useSyncExternalStore(totalStore.subscribe, totalStore.getSnapshot);
+  return <output>{value}</output>;
+}
+```
+
+If `getSnapshot()` throws, the error reaches the nearest error boundary.
+
+### Vue
+
+```ts
+import {customRef, onScopeDispose, type Ref} from 'vue';
+import type {ReactiveExternalStore} from 'graphora/store';
+
+export function useReactive<T>(store: ReactiveExternalStore<T>): Readonly<Ref<T>> {
+  return customRef((track, trigger) => {
+    onScopeDispose(store.subscribe(trigger));
+    return {
+      get() {
+        track();
+        return store.getSnapshot();
+      },
+      set() {
+        throw new Error('Graphora stores are read-only. Write to the source value.');
+      },
+    };
+  });
+}
+```
+
+### Svelte
+
+`toSvelteStore` follows the Svelte store contract, including `$` auto-subscription.
+
+```svelte
+<script lang="ts">
+  import {createExternalStore, createMicrotaskScheduler, toSvelteStore} from 'graphora/store';
+
+  const total$ = toSvelteStore(
+    createExternalStore(runtime, total, {scheduler: createMicrotaskScheduler()}),
+  );
+</script>
+
+<output>{$total$}</output>
+```
+
+### Solid
+
+```ts
+import {from} from 'solid-js';
+
+const totalSignal = from<number>((set) => {
+  set(() => totalStore.getSnapshot());
+  return totalStore.subscribe(() => set(() => totalStore.getSnapshot()));
+});
+```
+
+## Other entry points
+
+| Import                   | Use                                                |
+| ------------------------ | -------------------------------------------------- |
+| `graphora`               | Graph and reactive APIs together                   |
+| `graphora/graph`         | Graph only                                         |
+| `graphora/reactive`      | Reactive runtime only                              |
+| `graphora/advanced`      | Low-level reactive graph primitives for adapters   |
+| `graphora/store`         | Stores for Angular, React, Vue, Svelte, and Solid  |
+| `graphora/opentelemetry` | Batches and computations as OpenTelemetry spans    |
+| `graphora/inspector`     | Read-only inspection tools and MCP adapter helpers |
+| `graphora/devtools`      | Transport-agnostic devtools message bridge         |
+
+Ordinary applications do not need `graphora/advanced`.
+
+Plugins attach with `runtime.use(plugin)`. OpenTelemetry stays out of
+Graphora's dependencies: pass a tracer that implements `startSpan`.
+
+```ts
+import {context, trace} from '@opentelemetry/api';
+import {createOpenTelemetryPlugin} from 'graphora/opentelemetry';
+
+runtime.use(
+  createOpenTelemetryPlugin({
+    tracer: trace.getTracer('checkout'),
+    parentContext: (span) => trace.setSpan(context.active(), span),
+  }),
+);
+```
+
+An outermost `runtime.batch()` becomes a `graphora.batch` span. Each computed
+evaluation and effect run becomes `graphora.computed` or `graphora.effect`.
 
 ## License
 
