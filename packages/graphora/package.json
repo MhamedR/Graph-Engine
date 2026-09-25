@@ -1,6 +1,6 @@
 {
   "name": "graphora",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Framework-agnostic directed graph and reactive engine for TypeScript.",
   "type": "module",
   "main": "./dist/graphora/index.js",
