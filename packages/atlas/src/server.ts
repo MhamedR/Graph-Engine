@@ -1,17 +1,20 @@
+#!/usr/bin/env node
 /**
- * Dev server for graphora/atlas.
+ * Server and CLI for graphora/atlas.
  *
- * The default root is this repository. The page receives one snapshot; the
- * browser session is the only picture state after that.
+ * From a clone, the default root is this repository and the UI is bundled on
+ * start. From the published package, the default root is the working
+ * directory and the UI ships prebuilt beside this file. The page receives one
+ * snapshot; the browser session is the only picture state after that.
  */
 
 import {spawn} from 'node:child_process';
+import {existsSync} from 'node:fs';
 import {createServer, type IncomingMessage, type ServerResponse} from 'node:http';
 import {access, readFile} from 'node:fs/promises';
 import {platform} from 'node:os';
 import {dirname, join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import * as esbuild from 'esbuild';
 import {extractProject} from './extract-project.js';
 import {extractSourceFocus} from './extract-source.js';
 import type {AtlasBoot, AtlasSnapshot} from './model.js';
@@ -19,20 +22,34 @@ import type {AtlasBoot, AtlasSnapshot} from './model.js';
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, '../../..');
 const uiDir = join(here, 'ui');
+const prebuiltUi = join(uiDir, 'app.js');
+const packaged = existsSync(prebuiltUi);
+
+const USAGE = `Usage: graphora-atlas [--root <path>] [--port <number>] [--no-open]
+
+  --root <path>    Project to map. Defaults to the current directory.
+  --port <number>  Port on 127.0.0.1. Defaults to PORT, then 4318.
+  --no-open        Do not open a browser.`;
 
 async function main(): Promise<void> {
-  const root = resolve(readOption('--root') ?? repoRoot);
-  const port = Number(readOption('--port') ?? process.env.PORT ?? 4318);
-  const graphoraEntry = join(repoRoot, 'packages/graphora/dist/graphora/index.js');
-
-  try {
-    await access(graphoraEntry);
-  } catch {
-    console.error('Build graphora before starting atlas: npm run build');
-    process.exit(1);
+  if (process.argv.includes('--help') || process.argv.includes('-h')) {
+    console.log(USAGE);
+    return;
   }
 
-  const script = await bundleUi();
+  const root = resolve(readOption('--root') ?? (packaged ? process.cwd() : repoRoot));
+  const port = Number(readOption('--port') ?? process.env.PORT ?? 4318);
+
+  if (!packaged) {
+    try {
+      await access(join(repoRoot, 'packages/graphora/dist/graphora/index.js'));
+    } catch {
+      console.error('Build graphora before starting atlas: npm run build');
+      process.exit(1);
+    }
+  }
+
+  const script = packaged ? await readFile(prebuiltUi, 'utf8') : await bundleUi();
   const stylesheet = await readFile(join(uiDir, 'atlas.css'), 'utf8');
 
   const server = createServer((request, response) => {
@@ -145,6 +162,7 @@ function html(boot: AtlasBoot): string {
 }
 
 async function bundleUi(): Promise<string> {
+  const esbuild = await import('esbuild');
   const result = await esbuild.build({
     absWorkingDir: repoRoot,
     entryPoints: [join(uiDir, 'main.tsx')],
