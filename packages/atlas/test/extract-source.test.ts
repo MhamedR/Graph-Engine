@@ -3,8 +3,9 @@ import {tmpdir} from 'node:os';
 import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {test} from 'node:test';
-import {assert} from '../../../test/assert.js';
+import {assert, ensure} from '../../../test/assert.js';
 import {extractProject} from '../src/extract-project.js';
+import {extractSourceFocus} from '../src/extract-source.js';
 import {IMPORTS} from '../src/model.js';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -57,6 +58,23 @@ test('a single project is drawn as its src structure', async () => {
     assert(
       !snapshot.edges.some((item) => item.from === 'agents' && item.to === 'agents'),
       'imports inside a folder are not edges',
+    );
+
+    const deeper = await extractSourceFocus(root, 'src/agents');
+    ensure(deeper !== null, 'a folder can open into its files');
+    const deeperIds = new Set(deeper.nodes.map((node) => node.id));
+    const deeperEdge = (from: string, to: string) =>
+      deeper?.edges.some(
+        (item) => item.relation === IMPORTS && item.from === from && item.to === to,
+      ) === true;
+
+    assert(deeperIds.has('CodingAgent.ts') && deeperIds.has('Agent.ts'), 'files become nodes');
+    assert(deeperIds.has('handoffs.ts'), 'an imported file outside the folder stays visible');
+    assert(deeperEdge('Agent.ts', 'CodingAgent.ts'), 'an internal import is a link');
+    assert(deeperEdge('handoffs.ts', 'CodingAgent.ts'), 'an outside import is a link');
+    assert(
+      deeper.nodes.find((node) => node.id === 'handoffs.ts')?.description === 'Outside this part.',
+      'outside files are marked',
     );
   } finally {
     await rm(root, {recursive: true, force: true});

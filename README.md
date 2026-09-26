@@ -220,6 +220,8 @@ npm run bench:regression # executable CI performance budgets
 npm run atlas       # open graphora/atlas on this repository
 ```
 
+[packages/atlas/README.md](packages/atlas/README.md) walks the map on a real project: map, impact, upstream, cycles, order, Go deeper, and export.
+
 CI runs `npm run ci` on `main` and pull requests.
 
 ## License

@@ -26,7 +26,7 @@ export {
 } from './model.js';
 
 export {extractProject} from './extract-project.js';
-export {extractSource} from './extract-source.js';
+export {extractSource, extractSourceFocus} from './extract-source.js';
 export {extractWorkspace} from './extract-workspace.js';
 
 export {

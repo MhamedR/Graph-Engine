@@ -13,6 +13,7 @@ import {dirname, join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import * as esbuild from 'esbuild';
 import {extractProject} from './extract-project.js';
+import {extractSourceFocus} from './extract-source.js';
 import type {AtlasBoot, AtlasSnapshot} from './model.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -79,6 +80,17 @@ async function handle(
 
     if (url.pathname === '/api/snapshot') {
       const snapshot = await extractProject(assets.root);
+      send(response, 200, 'application/json; charset=utf-8', JSON.stringify(snapshot));
+      return;
+    }
+
+    if (url.pathname === '/api/focus') {
+      const nodePath = url.searchParams.get('path') ?? '';
+      const snapshot = await extractSourceFocus(assets.root, nodePath);
+      if (!snapshot) {
+        send(response, 404, 'text/plain; charset=utf-8', 'Nothing deeper here.');
+        return;
+      }
       send(response, 200, 'application/json; charset=utf-8', JSON.stringify(snapshot));
       return;
     }

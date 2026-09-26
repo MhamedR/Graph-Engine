@@ -62,14 +62,24 @@ button {
   padding: 18px 22px 8px;
 }
 
+.header-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 18px;
+  width: 100%;
+}
+
 .brand {
   display: flex;
   align-items: baseline;
   gap: 18px;
-  max-width: 100%;
+  flex: 1;
+  min-width: 0;
 }
 
 .wordmark {
+  flex: none;
   margin: 0;
   font-family: var(--serif);
   font-weight: 520;
@@ -92,8 +102,58 @@ button {
   letter-spacing: 0.04em;
 }
 
+.root-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .direction {
   max-width: 100%;
+}
+
+.crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+
+.crumbs button {
+  color: var(--muted);
+}
+
+.crumbs button:hover,
+.crumb-current {
+  color: var(--copper);
+}
+
+.crumb-sep {
+  margin-right: 6px;
+}
+
+.menu {
+  position: fixed;
+  z-index: 7;
+  min-width: 132px;
+  padding: 4px 0;
+  background: var(--node);
+  border: 1px solid var(--hairline);
+}
+
+.menu button {
+  display: block;
+  width: 100%;
+  padding: 6px 12px;
+  text-align: left;
+}
+
+.menu button:hover {
+  color: var(--copper);
 }
 
 .rail {
@@ -129,6 +189,7 @@ button {
 .lenses button:focus-visible,
 .node:focus-visible,
 .filmstrip button:focus-visible,
+.export > button:focus-visible,
 .command input:focus-visible {
   outline: 1px solid var(--copper);
   outline-offset: 3px;
@@ -401,6 +462,45 @@ button {
   align-items: end;
   padding: 8px 18px 14px;
   border-top: 1px solid var(--hairline);
+}
+
+.export {
+  position: relative;
+  flex: none;
+}
+
+.export > button {
+  color: var(--muted);
+  font-size: 13px;
+  letter-spacing: 0.14em;
+}
+
+.export > button:hover,
+.export > button[data-open='true'] {
+  color: var(--copper);
+}
+
+.export > button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.export .menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 7;
+}
+
+.export-note {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  margin: 0;
+  width: max-content;
+  max-width: 28ch;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .filmstrip {

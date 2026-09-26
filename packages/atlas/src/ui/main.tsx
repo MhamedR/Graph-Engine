@@ -33,7 +33,9 @@ import {
   type AtlasSession,
   type Emphasis,
 } from '../session.js';
+import {buildExportPicture, exportFilename} from '../export.js';
 import {connectionCurve} from './curves.js';
+import {savePicture} from './paint.js';
 
 const EASE = 'cubic-bezier(0.2, 0.8, 0.2, 1)';
 
@@ -107,6 +109,10 @@ function Picture({
   const layout = useStore(stores.layout);
   const stageRef = useRef<HTMLElement | null>(null);
   const [command, setCommand] = useState('');
+  const [menu, setMenu] = useState<{id: string; x: number; y: number} | null>(null);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const crumbs = useStore(stores.crumbs);
 
   useLayoutEffect(() => {
     const stage = stageRef.current;
@@ -130,6 +136,14 @@ function Picture({
       const target = event.target;
       const typing = target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement;
       if (event.key === 'Escape') {
+        if (exportOpen) {
+          setExportOpen(false);
+          return;
+        }
+        if (menu) {
+          setMenu(null);
+          return;
+        }
         session.runtime.batch(() => {
           session.query.value = '';
           session.selectedId.value = null;
@@ -166,7 +180,7 @@ function Picture({
 
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [session]);
+  }, [exportOpen, menu, session]);
 
   const buildOrder = useStore(stores.order);
   const selected = snapshot?.nodes.find((node) => node.id === selectedId) ?? null;
@@ -180,13 +194,95 @@ function Picture({
   return (
     <div className="app" data-reduced={reducedMotion ? 'true' : 'false'}>
       <header className="header">
-        <div className="brand">
-          <h1 className="wordmark">
-            graphora<span className="slash">/</span>atlas
-          </h1>
-          <p className="root-path">{boot.root}</p>
+        <div className="header-top">
+          <div className="brand">
+            <h1 className="wordmark">
+              graphora<span className="slash">/</span>atlas
+            </h1>
+            <p className="root-path">{boot.root}</p>
+          </div>
+          <div className="export">
+            <button
+              type="button"
+              data-export
+              data-open={exportOpen ? 'true' : 'false'}
+              aria-haspopup="menu"
+              aria-expanded={exportOpen}
+              disabled={!layout || layout.nodes.length === 0}
+              onClick={(event) => {
+                event.stopPropagation();
+                setMenu(null);
+                setExportOpen((open) => !open);
+              }}
+            >
+              export
+            </button>
+            {exportError ? <p className="export-note">{exportError}</p> : null}
+            {exportOpen && snapshot && layout ? (
+              <div className="menu" role="menu" data-export-menu>
+                {(
+                  [
+                    ['drawio', 'Draw.io'],
+                    ['pdf', 'PDF'],
+                    ['jpeg', 'JPEG'],
+                  ] as const
+                ).map(([kind, label]) => (
+                  <button
+                    key={kind}
+                    type="button"
+                    role="menuitem"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      const extension = kind === 'drawio' ? 'drawio' : kind;
+                      const picture = buildExportPicture({
+                        root: snapshot.root,
+                        lens,
+                        snapshot,
+                        layout,
+                        emphasis,
+                        selectedId,
+                        filter,
+                      });
+                      setExportOpen(false);
+                      setExportError(null);
+                      void savePicture(
+                        kind,
+                        picture,
+                        exportFilename(snapshot.root, lens, extension),
+                      ).catch((error: unknown) => {
+                        setExportError(
+                          error instanceof Error ? error.message : 'Could not export the picture.',
+                        );
+                      });
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
         </div>
         <p className="direction">{DIRECTION_LINE}</p>
+        {crumbs.length > 0 ? (
+          <nav className="crumbs" aria-label="Depth">
+            <button type="button" onClick={() => session.ascend(0)}>
+              {boot.root.split('/').pop()}
+            </button>
+            {crumbs.map((crumb, index) => (
+              <span key={`${crumb}:${index}`}>
+                <span className="crumb-sep">/</span>
+                {index === crumbs.length - 1 ? (
+                  <span className="crumb-current">{crumb}</span>
+                ) : (
+                  <button type="button" onClick={() => session.ascend(index + 1)}>
+                    {crumb}
+                  </button>
+                )}
+              </span>
+            ))}
+          </nav>
+        ) : null}
       </header>
       <aside className="rail">
         <div>
@@ -214,7 +310,15 @@ function Picture({
         </div>
         {selected && snapshot ? <Inspector snapshot={snapshot} node={selected} /> : null}
       </aside>
-      <main className="stage" ref={stageRef} onClick={() => session.select(null)}>
+      <main
+        className="stage"
+        ref={stageRef}
+        onClick={() => {
+          setMenu(null);
+          setExportOpen(false);
+          session.select(null);
+        }}
+      >
         {boot.error ? (
           <div className="field-message" data-state="error">
             <p>{boot.error}</p>
@@ -249,10 +353,15 @@ function Picture({
               onDragStart={(id) => session.setDragging(id)}
               onDragEnd={() => session.setDragging(null)}
               onMove={(id, dx, dy) => session.moveNode(id, dx, dy)}
+              onMenu={(id, x, y) => {
+                session.setHovered(null);
+                setExportOpen(false);
+                setMenu({id, x, y});
+              }}
             />
           </Fitted>
         ) : null}
-        {hovered && snapshot && draggingId === null ? (
+        {hovered && snapshot && draggingId === null && menu === null ? (
           <PackageTooltip
             snapshot={snapshot}
             node={hovered}
@@ -297,8 +406,33 @@ function Picture({
           />
         </form>
       </footer>
+      {menu && snapshot ? (
+        <div className="menu" role="menu" style={{left: menu.x, top: menu.y}} data-menu>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={(event) => {
+              event.stopPropagation();
+              const node = snapshot.nodes.find((item) => item.id === menu.id);
+              setMenu(null);
+              if (!node) return;
+              void openDeeper(session, snapshot.root, node);
+            }}
+          >
+            Go deeper
+          </button>
+        </div>
+      ) : null}
     </div>
   );
+}
+
+async function openDeeper(session: AtlasSession, root: string, node: PackageNode): Promise<void> {
+  const response = await fetch(`/api/focus?path=${encodeURIComponent(node.path)}`);
+  if (!response.ok) return;
+  const next = (await response.json()) as AtlasSnapshot;
+  if (next.root !== root || next.nodes.length === 0) return;
+  session.pushDepth(next, node.id);
 }
 
 function pictureScale(layout: AtlasLayout): number {
@@ -507,6 +641,7 @@ function Graph({
   onDragStart,
   onDragEnd,
   onMove,
+  onMenu,
 }: {
   readonly snapshot: AtlasSnapshot;
   readonly layoutNodes: readonly PlacedNode[];
@@ -526,6 +661,7 @@ function Graph({
   readonly onDragStart: (id: string) => void;
   readonly onDragEnd: () => void;
   readonly onMove: (id: string, dx: number, dy: number) => void;
+  readonly onMenu: (id: string, x: number, y: number) => void;
 }) {
   const packages = new Map(snapshot.nodes.map((node) => [node.id, node]));
   const emphasizedNodes = new Set(emphasis.nodes);
@@ -833,6 +969,11 @@ function Graph({
               if (dragRef.current?.id !== node.id) return;
               dragRef.current = null;
               onDragEnd();
+            }}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onMenu(node.id, event.clientX, event.clientY);
             }}
             onClick={(event) => {
               event.stopPropagation();

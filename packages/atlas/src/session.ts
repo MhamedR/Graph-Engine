@@ -42,6 +42,7 @@ export interface AtlasSession {
   readonly viewport: ReactiveValue<Viewport>;
   readonly offsets: ReactiveValue<Readonly<Record<string, NodeOffset>>>;
   readonly draggingId: ReactiveValue<string | null>;
+  readonly crumbs: ReactiveValue<readonly string[]>;
   readonly graph: ReactiveComputed<PackageGraph | null>;
   readonly downstream: ReactiveComputed<readonly string[]>;
   readonly upstream: ReactiveComputed<readonly string[]>;
@@ -58,6 +59,8 @@ export interface AtlasSession {
   setHovered(id: string | null): void;
   setDragging(id: string | null): void;
   moveNode(id: string, dx: number, dy: number): void;
+  pushDepth(snapshot: AtlasSnapshot, label: string): void;
+  ascend(index: number): void;
   moveSelection(direction: 'outgoing' | 'incoming'): void;
   command(input: string): void;
   dispose(): void;
@@ -72,6 +75,7 @@ export interface AtlasConnection {
   readonly reducedMotion: ReactiveExternalStore<boolean>;
   readonly hoveredId: ReactiveExternalStore<string | null>;
   readonly draggingId: ReactiveExternalStore<string | null>;
+  readonly crumbs: ReactiveExternalStore<readonly string[]>;
   readonly order: ReactiveExternalStore<BuildOrder>;
   readonly emphasis: ReactiveExternalStore<Emphasis>;
   readonly layout: ReactiveExternalStore<AtlasLayout | null>;
@@ -110,6 +114,8 @@ export function createAtlasSession(options: {
     {},
   );
   const draggingId = new ReactiveValue<string | null>(runtime, 'atlas:dragging', null);
+  const crumbs = new ReactiveValue<readonly string[]>(runtime, 'atlas:crumbs', []);
+  const history: AtlasSnapshot[] = [];
 
   const graph = new ReactiveComputed(runtime, 'atlas:graph', () => {
     const current = snapshot.value;
@@ -223,6 +229,7 @@ export function createAtlasSession(options: {
     viewport,
     offsets,
     draggingId,
+    crumbs,
     graph,
     downstream: downstreamOf,
     upstream: upstreamOf,
@@ -295,6 +302,33 @@ export function createAtlasSession(options: {
           ...offsets.value,
           [id]: {x: current.x + dx, y: current.y + dy},
         };
+      });
+    },
+    pushDepth(next, label) {
+      const current = snapshot.value;
+      if (!current) return;
+      runtime.batch(() => {
+        history.push(current);
+        crumbs.value = [...crumbs.value, label];
+        snapshot.value = next;
+        selectedId.value = null;
+        hoveredId.value = null;
+        offsets.value = {};
+        draggingId.value = null;
+      });
+    },
+    ascend(index) {
+      if (index < 0 || index >= history.length) return;
+      const restored = history[index];
+      if (!restored) return;
+      runtime.batch(() => {
+        history.splice(index);
+        crumbs.value = crumbs.value.slice(0, index);
+        snapshot.value = restored;
+        selectedId.value = null;
+        hoveredId.value = null;
+        offsets.value = {};
+        draggingId.value = null;
       });
     },
     moveSelection(direction) {
@@ -373,6 +407,10 @@ export function connectAtlasSession(session: AtlasSession): AtlasConnection {
       scheduler,
       id: 'atlas:store:dragging',
     }),
+    crumbs: createExternalStore(session.runtime, session.crumbs, {
+      scheduler,
+      id: 'atlas:store:crumbs',
+    }),
     order: createExternalStore(session.runtime, session.order, {
       scheduler,
       id: 'atlas:store:order',
@@ -398,6 +436,7 @@ export function connectAtlasSession(session: AtlasSession): AtlasConnection {
       stores.reducedMotion.dispose();
       stores.hoveredId.dispose();
       stores.draggingId.dispose();
+      stores.crumbs.dispose();
       stores.order.dispose();
       stores.emphasis.dispose();
       stores.layout.dispose();
