@@ -107,8 +107,9 @@ export async function extractSource(root: string): Promise<AtlasSnapshot> {
 /**
  * Opens one folder or file from a source map.
  *
- * The nodes are the files inside that part, plus the files they import and
- * the files that import them. Edges stay `imports`.
+ * A flat folder opens into its files. A nested folder opens one level down:
+ * each child folder stays a node, and import edges connect those parts.
+ * Files one import away from outside the folder stay visible as links.
  */
 export async function extractSourceFocus(
   root: string,
@@ -166,25 +167,21 @@ export async function extractSourceFocus(
     });
   }
 
-  const ids = fileIds(visible);
-  const nodes: PackageNode[] = visible
-    .map((file) => {
-      const fromRoot = toPosix(relative(resolvedRoot, file.absolute));
-      const inside = fromRoot === nodePath || fromRoot.startsWith(`${nodePath}/`);
-      return {
-        id: ids.get(file.absolute) ?? file.relativeToSource,
-        version: inside ? '' : 'link',
-        private: false,
-        path: fromRoot,
-        description: inside ? '' : 'Outside this part.',
-      };
-    })
+  const parts = focusParts(visible, nodePath, resolvedRoot);
+  const nodes: PackageNode[] = parts
+    .map((part) => ({
+      id: part.id,
+      version: part.inside ? '' : 'link',
+      private: false,
+      path: part.path,
+      description: part.inside ? '' : 'Outside this part.',
+      ...(part.files ? {files: part.files} : {}),
+    }))
     .sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0));
 
   const idOf = new Map<string, string>();
-  for (const file of visible) {
-    const id = ids.get(file.absolute);
-    if (id) idOf.set(file.absolute, id);
+  for (const part of parts) {
+    for (const absolute of part.absolutes) idOf.set(absolute, part.id);
   }
 
   const edges = new Map<string, AtlasEdge>();
@@ -208,6 +205,95 @@ export async function extractSourceFocus(
     root: resolvedRoot,
     kind: 'source',
   };
+}
+
+interface FocusPart {
+  readonly id: string;
+  readonly path: string;
+  readonly inside: boolean;
+  readonly files?: readonly string[];
+  readonly absolutes: readonly string[];
+}
+
+/**
+ * A flat folder opens into its files. A nested folder opens one level:
+ * the files sitting in it, and a node for each child folder. Duplicate
+ * names such as `page.tsx` stay inside their folder instead of becoming
+ * a path-shaped id.
+ */
+function focusParts(
+  visible: readonly SourceFile[],
+  nodePath: string,
+  resolvedRoot: string,
+): FocusPart[] {
+  const inside: SourceFile[] = [];
+  const outside: SourceFile[] = [];
+
+  for (const file of visible) {
+    const fromRoot = toPosix(relative(resolvedRoot, file.absolute));
+    if (fromRoot === nodePath || fromRoot.startsWith(`${nodePath}/`)) inside.push(file);
+    else outside.push(file);
+  }
+
+  const nested = inside.some((file) => restUnder(file, nodePath, resolvedRoot).includes('/'));
+  const parts: FocusPart[] = [];
+
+  if (nested) {
+    const groups = new Map<string, SourceFile[]>();
+    for (const file of inside) {
+      const key = restUnder(file, nodePath, resolvedRoot).split('/')[0] ?? file.relativeToSource;
+      const group = groups.get(key);
+      if (group) group.push(file);
+      else groups.set(key, [file]);
+    }
+
+    for (const [id, members] of groups) {
+      const folder = members.some((file) => restUnder(file, nodePath, resolvedRoot).includes('/'));
+      const listed = folder
+        ? members.map((file) => restUnder(file, nodePath, resolvedRoot).slice(id.length + 1)).sort()
+        : undefined;
+      parts.push({
+        id,
+        path: `${nodePath}/${id}`,
+        inside: true,
+        ...(listed ? {files: listed} : {}),
+        absolutes: members.map((file) => file.absolute),
+      });
+    }
+  } else {
+    for (const file of inside) {
+      const base = file.relativeToSource.split('/').pop() ?? file.relativeToSource;
+      parts.push({
+        id: base,
+        path: toPosix(relative(resolvedRoot, file.absolute)),
+        inside: true,
+        absolutes: [file.absolute],
+      });
+    }
+  }
+
+  const taken = new Set(parts.map((part) => part.id));
+  const outsideIds = fileIds(outside);
+
+  for (const file of outside) {
+    const base = outsideIds.get(file.absolute) ?? file.relativeToSource;
+    const id = taken.has(base) ? file.relativeToSource : base;
+    taken.add(id);
+    parts.push({
+      id,
+      path: toPosix(relative(resolvedRoot, file.absolute)),
+      inside: false,
+      absolutes: [file.absolute],
+    });
+  }
+
+  return parts;
+}
+
+function restUnder(file: SourceFile, nodePath: string, resolvedRoot: string): string {
+  const fromRoot = toPosix(relative(resolvedRoot, file.absolute));
+  if (!fromRoot.startsWith(`${nodePath}/`)) return fromRoot;
+  return fromRoot.slice(nodePath.length + 1);
 }
 
 function fileIds(files: readonly SourceFile[]): Map<string, string> {

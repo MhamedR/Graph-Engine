@@ -81,6 +81,58 @@ test('a single project is drawn as its src structure', async () => {
   }
 });
 
+test('a nested folder opens as parts, not path-shaped files', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'atlas-nested-'));
+
+  try {
+    await mkdir(join(root, 'app/auth'), {recursive: true});
+    await writeFile(
+      join(root, 'app/page.tsx'),
+      "import {AuthPage} from './auth/page';\nexport default function Page() { return AuthPage; }\n",
+    );
+    await writeFile(
+      join(root, 'app/auth/page.tsx'),
+      'export function AuthPage() { return null; }\n',
+    );
+    await writeFile(
+      join(root, 'app/layout.tsx'),
+      'export default function Layout() { return null; }\n',
+    );
+
+    const deeper = await extractSourceFocus(root, 'app');
+    ensure(deeper !== null, 'the app folder opens');
+    const ids = new Set(deeper.nodes.map((node) => node.id));
+    const auth = deeper.nodes.find((node) => node.id === 'auth');
+
+    assert(
+      ids.has('page.tsx') && ids.has('layout.tsx') && ids.has('auth'),
+      'the next level is the picture',
+    );
+    assert(!ids.has('app/auth/page.tsx'), 'a nested file is not named with its path');
+    assert(auth?.path === 'app/auth', 'the child folder can open again');
+    assert(auth?.files?.includes('page.tsx') === true, 'the child folder lists its page');
+    assert(
+      deeper.edges.some(
+        (edge) => edge.relation === IMPORTS && edge.from === 'auth' && edge.to === 'page.tsx',
+      ),
+      'the page stands on the auth folder',
+    );
+
+    const authLevel = await extractSourceFocus(root, 'app/auth');
+    ensure(authLevel !== null, 'the auth folder opens');
+    assert(
+      authLevel.nodes.some((node) => node.id === 'page.tsx'),
+      'the page is a file once the folder is open',
+    );
+    assert(
+      !authLevel.nodes.some((node) => node.id === 'app/auth/page.tsx'),
+      'the open folder does not keep the path as a name',
+    );
+  } finally {
+    await rm(root, {recursive: true, force: true});
+  }
+});
+
 test('a workspace of several packages stays a package map', async () => {
   const snapshot = await extractProject(repoRoot);
   const ids = new Set(snapshot.nodes.map((node) => node.id));
