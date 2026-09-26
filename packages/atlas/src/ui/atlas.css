@@ -8,6 +8,10 @@
   --hairline: rgba(231, 225, 212, 0.16);
   --lift: rgba(231, 225, 212, 0.035);
   --node: #18160f;
+  --folder: #3a3128;
+  --folder-line: #b08972;
+  --file: #1c2124;
+  --file-line: #8d877c;
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   --serif: Fraunces, 'Iowan Old Style', Palatino, 'Palatino Linotype', serif;
   --sans: Outfit, 'Avenir Next', 'Segoe UI', sans-serif;
@@ -338,6 +342,75 @@ button {
   letter-spacing: 0.06em;
 }
 
+.node[data-shape='folder'] {
+  background: var(--folder);
+  border-color: var(--folder-line);
+}
+
+.node[data-shape='folder']::before {
+  content: '';
+  position: absolute;
+  z-index: 1;
+  top: -7px;
+  left: -1px;
+  width: 34px;
+  height: 8px;
+  background: var(--folder);
+  border: 1px solid;
+  border-color: inherit;
+  border-bottom: 0;
+  border-radius: 3px 4px 0 0;
+}
+
+.node[data-shape='folder'] .name,
+.node[data-shape='folder'] .version {
+  position: relative;
+  z-index: 2;
+}
+
+.node[data-shape='folder'] .version {
+  color: var(--folder-line);
+}
+
+.node[data-shape='file'] {
+  background: var(--file);
+  border-color: var(--file-line);
+}
+
+.node[data-shape='file'] .version {
+  color: var(--file-line);
+}
+
+.node[data-shape='file']::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 14px;
+  height: 14px;
+  background: linear-gradient(135deg, transparent 50%, rgba(231, 225, 212, 0.4) 50%);
+  pointer-events: none;
+}
+
+.node[data-shape='folder'][data-selected='true'],
+.node[data-shape='file'][data-selected='true'],
+.node[data-shape='folder'][data-engine='true'],
+.node[data-shape='file'][data-engine='true'] {
+  border-color: var(--copper);
+}
+
+.node[data-shape='folder'][data-hovered='true']:not([data-selected='true']):not(
+    [data-engine='true']
+  ) {
+  border-color: #c9b2a4;
+}
+
+.node[data-shape='file'][data-hovered='true']:not([data-selected='true']):not(
+    [data-engine='true']
+  ) {
+  border-color: rgba(231, 225, 212, 0.45);
+}
+
 .tooltip {
   position: fixed;
   z-index: 6;
@@ -438,6 +511,13 @@ button {
   font-weight: 520;
   font-size: 16px;
   letter-spacing: -0.02em;
+}
+
+.inspector-kind {
+  margin: -4px 0 8px;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.14em;
 }
 
 .inspector p,

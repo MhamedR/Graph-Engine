@@ -10,6 +10,10 @@ const MUTED = '#8d877c';
 const COPPER = '#e07a45';
 const BUNDLE = '#b08972';
 const NODE = '#18160f';
+const FOLDER = '#3a3128';
+const FOLDER_LINE = '#b08972';
+const FILE = '#1c2124';
+const FILE_LINE = '#8d877c';
 const SCALE = 2;
 
 const CURVE =
@@ -56,14 +60,23 @@ export async function paintJpeg(picture: ExportPicture): Promise<{
   for (const node of picture.nodes) {
     context.save();
     context.globalAlpha = node.opacity;
-    context.fillStyle = NODE;
-    context.fillRect(node.x, node.y, node.width, node.height);
-    context.strokeStyle = node.copper
+    const stroke = node.copper
       ? COPPER
       : node.quietBorder
         ? 'rgba(231, 225, 212, 0.08)'
-        : 'rgba(231, 225, 212, 0.16)';
-    context.strokeRect(node.x + 0.5, node.y + 0.5, node.width - 1, node.height - 1);
+        : node.shape === 'folder'
+          ? FOLDER_LINE
+          : node.shape === 'file'
+            ? FILE_LINE
+            : 'rgba(231, 225, 212, 0.16)';
+    context.strokeStyle = stroke;
+    context.fillStyle = node.shape === 'folder' ? FOLDER : node.shape === 'file' ? FILE : NODE;
+    if (node.shape === 'folder') paintFolder(context, node);
+    else context.fillRect(node.x, node.y, node.width, node.height);
+    if (node.shape !== 'folder') {
+      context.strokeRect(node.x + 0.5, node.y + 0.5, node.width - 1, node.height - 1);
+    }
+    if (node.shape === 'file') paintFold(context, node);
     context.textAlign = 'left';
     context.textBaseline = 'middle';
     context.fillStyle = INK;
@@ -111,6 +124,41 @@ export async function savePicture(
   const bytes = new ArrayBuffer(pdf.byteLength);
   new Uint8Array(bytes).set(pdf);
   download(filename, new Blob([bytes], {type: 'application/pdf'}));
+}
+
+function paintFolder(
+  context: CanvasRenderingContext2D,
+  node: ExportPicture['nodes'][number],
+): void {
+  const tabWidth = Math.min(36, node.width * 0.28);
+  const tabHeight = 7;
+  context.beginPath();
+  context.moveTo(node.x, node.y + node.height);
+  context.lineTo(node.x, node.y - tabHeight);
+  context.lineTo(node.x + tabWidth, node.y - tabHeight);
+  context.lineTo(node.x + tabWidth, node.y);
+  context.lineTo(node.x + node.width, node.y);
+  context.lineTo(node.x + node.width, node.y + node.height);
+  context.closePath();
+  context.fill();
+  context.stroke();
+}
+
+function paintFold(context: CanvasRenderingContext2D, node: ExportPicture['nodes'][number]): void {
+  const size = 14;
+  const right = node.x + node.width;
+  context.beginPath();
+  context.moveTo(right - size, node.y);
+  context.lineTo(right, node.y);
+  context.lineTo(right, node.y + size);
+  context.closePath();
+  context.fillStyle = 'rgba(231, 225, 212, 0.4)';
+  context.fill();
+  context.beginPath();
+  context.moveTo(right - size, node.y);
+  context.lineTo(right - size, node.y + size);
+  context.lineTo(right, node.y + size);
+  context.stroke();
 }
 
 function drawEdge(context: CanvasRenderingContext2D, edge: ExportEdge): void {

@@ -1,6 +1,7 @@
 import {test} from 'node:test';
 import {assert} from '../../../test/assert.js';
 import {buildExportPicture, exportFilename, jpegToPdf, toDrawio} from '../src/export.js';
+import {nodeCaption, nodeShape} from '../src/model.js';
 import type {AtlasLayout} from '../src/layout.js';
 import {atlasEdgeId, type AtlasSnapshot} from '../src/model.js';
 
@@ -69,6 +70,35 @@ test('draw.io export keeps nodes, relations, and escaped labels', () => {
   assert(xml.includes('dashed=1;dashPattern=4 5;opacity=15;'), 'a quiet bundle edge is dashed');
   assert(xml.includes('strokeColor=#e07a45'), 'the selected node keeps the copper edge');
   assert(xml.includes('1 file&lt;/span'), 'a folder shows its file count');
+  assert(xml.includes('shape=mxgraph.basic.folder'), 'a folder keeps a folder shape');
+  assert(xml.includes('shape=mxgraph.basic.folded_corner'), 'a file keeps a folded corner');
+  assert(xml.includes('fillColor=#3a3128'), 'a folder stays in the warm field palette');
+  assert(xml.includes('fillColor=#1c2124'), 'a file stays in the warm field palette');
+});
+
+test('a loose source file is not drawn as a folder', () => {
+  const file = {
+    id: 'index.ts',
+    version: '',
+    private: false,
+    path: 'src/index.ts',
+    description: '',
+    files: ['index.ts'],
+  };
+  const folder = {
+    id: 'agents',
+    version: '',
+    private: false,
+    path: 'src/agents',
+    description: '',
+    files: ['Agent.ts'],
+  };
+
+  assert(nodeShape('source', file) === 'file', 'a file that lists itself stays a file');
+  assert(nodeShape('source', folder) === 'folder', 'a folder lists the files inside it');
+  assert(nodeShape('workspace', folder) === null, 'a package map has no folder shape');
+  assert(nodeCaption(file, 'file') === 'file', 'a file is captioned as a file');
+  assert(nodeCaption(folder, 'folder') === '1 file', 'a folder is captioned with its count');
 });
 
 test('a jpeg becomes a one-page pdf', () => {

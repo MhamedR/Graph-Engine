@@ -55,6 +55,27 @@ export interface PackageNode {
   readonly files?: readonly string[];
 }
 
+/** A source node is a folder when it lists files, and a file otherwise. */
+export type NodeShape = 'folder' | 'file';
+
+export function nodeShape(kind: AtlasSnapshot['kind'], node: PackageNode): NodeShape | null {
+  if (kind !== 'source') return null;
+  const files = node.files ?? [];
+  if (files.length === 0) return 'file';
+  const ownName = node.path.split('/').pop() ?? node.id;
+  if (files.length === 1 && (files[0] === node.id || files[0] === ownName)) return 'file';
+  return 'folder';
+}
+
+export function nodeCaption(node: PackageNode, shape: NodeShape | null): string {
+  if (shape === 'folder' && node.files) {
+    const count = node.files.length;
+    return `${count} ${count === 1 ? 'file' : 'files'}`;
+  }
+  if (shape === 'file' && node.version.length === 0) return 'file';
+  return node.version;
+}
+
 export interface AtlasEdge {
   readonly id: string;
   readonly from: string;

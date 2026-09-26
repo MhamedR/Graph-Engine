@@ -21,6 +21,8 @@ import {
   LENS_QUESTION,
   SOURCE_LENS_QUESTION,
   READING_LINE,
+  nodeCaption,
+  nodeShape,
   type AtlasBoot,
   type AtlasSnapshot,
   type PackageNode,
@@ -490,13 +492,15 @@ function Inspector({
     snapshot.edges.filter((edge) => edge.from === node.id).map((edge) => edge.to),
   );
   const relations = snapshot.edges.filter((edge) => edge.from === node.id || edge.to === node.id);
+  const shape = nodeShape(snapshot.kind, node);
 
   return (
     <section className="inspector" data-inspector>
       <p className="inspector-name">{node.id}</p>
+      {shape ? <p className="inspector-kind">{shape}</p> : null}
       {node.description.length > 0 ? <p>{node.description}</p> : null}
       <p>{node.path}</p>
-      {node.files && node.files.length > 0 ? (
+      {shape === 'folder' && node.files && node.files.length > 0 ? (
         <div className="split">
           <p className="split-label">Files</p>
           <ul>
@@ -557,6 +561,7 @@ function PackageTooltip({
   const incoming = snapshot.edges.filter((edge) => edge.to === node.id);
   const outgoing = snapshot.edges.filter((edge) => edge.from === node.id);
   const files = node.files ?? [];
+  const shape = nodeShape(snapshot.kind, node);
   const description = node.description.length > 0 ? node.description : null;
 
   return (
@@ -575,15 +580,13 @@ function PackageTooltip({
     >
       <p className="tooltip-name">{node.id}</p>
       <p className="tooltip-meta">
-        {files.length > 0
-          ? `${files.length} ${files.length === 1 ? 'file' : 'files'}`
-          : node.version}
+        {nodeCaption(node, shape)}
         {rank === null ? '' : ` · rank ${rank}`}
-        {files.length > 0 ? '' : node.private ? ' · private' : ' · published'}
+        {shape === null ? (node.private ? ' · private' : ' · published') : ''}
       </p>
       {description ? <p>{description}</p> : null}
       <p className="tooltip-path">{node.path}</p>
-      {files.length > 0 ? (
+      {shape === 'folder' && files.length > 0 ? (
         <div className="split">
           <p className="split-label">Files</p>
           <ul className="tooltip-files">
@@ -889,6 +892,7 @@ function Graph({
           !(pkg.files ?? []).some((file) => file.toLowerCase().includes(filter));
         const emphasized = emphasizedNodes.has(node.id);
         const opacity = dimmed ? 0.2 : emphasized || selected ? 1 : 0.4;
+        const shape = nodeShape(snapshot.kind, pkg);
         return (
           <button
             key={node.id}
@@ -899,6 +903,7 @@ function Graph({
               else nodeRefs.current.delete(node.id);
             }}
             data-node-id={node.id}
+            data-shape={shape ?? undefined}
             data-rank={node.rank}
             data-selected={selected ? 'true' : 'false'}
             data-dimmed={dimmed ? 'true' : 'false'}
@@ -985,11 +990,7 @@ function Graph({
             }}
           >
             <span className="name">{pkg.id}</span>
-            <span className="version">
-              {pkg.files && pkg.files.length > 0
-                ? `${pkg.files.length} ${pkg.files.length === 1 ? 'file' : 'files'}`
-                : pkg.version}
-            </span>
+            <span className="version">{nodeCaption(pkg, shape)}</span>
           </button>
         );
       })}

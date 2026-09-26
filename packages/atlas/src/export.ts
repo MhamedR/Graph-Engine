@@ -6,7 +6,7 @@
  */
 
 import type {AtlasLayout} from './layout.js';
-import type {AtlasSnapshot} from './model.js';
+import {nodeCaption, nodeShape, type AtlasSnapshot, type NodeShape} from './model.js';
 import type {Emphasis} from './session.js';
 import {connectionCurve} from './ui/curves.js';
 
@@ -22,6 +22,7 @@ export interface ExportNode {
   readonly selected: boolean;
   readonly copper: boolean;
   readonly quietBorder: boolean;
+  readonly shape: NodeShape | 'package';
 }
 
 export interface ExportEdge {
@@ -86,13 +87,12 @@ export function buildExportPicture(input: {
     const width = node.width * scale;
     const height = node.height * scale;
     const copper = selected || (!pkg.private && pkg.id === 'graphora' && input.selectedId === null);
+    const shape = nodeShape(input.snapshot.kind, pkg) ?? 'package';
     nodes.push({
       id: pkg.id,
       label: pkg.id,
-      detail:
-        pkg.files && pkg.files.length > 0
-          ? `${pkg.files.length} ${pkg.files.length === 1 ? 'file' : 'files'}`
-          : pkg.version,
+      detail: nodeCaption(pkg, shape === 'package' ? null : shape),
+      shape,
       x: node.x - (width - node.width) / 2,
       y: node.y - (height - node.height) / 2,
       width,
@@ -176,12 +176,28 @@ export function toDrawio(picture: ExportPicture): string {
   for (const node of picture.nodes) {
     const id = nodeIds.get(node.id);
     if (!id) continue;
-    const stroke = node.copper ? '#e07a45' : node.quietBorder ? '#2a2822' : '#3a362e';
+    const stroke = node.copper
+      ? '#e07a45'
+      : node.quietBorder
+        ? '#2a2822'
+        : node.shape === 'folder'
+          ? '#b08972'
+          : node.shape === 'file'
+            ? '#8d877c'
+            : '#3a362e';
     const font = node.selected ? 'Fraunces' : 'Outfit';
     const opacity = node.opacity >= 1 ? '' : `opacity=${Math.round(node.opacity * 100)};`;
+    const fill =
+      node.shape === 'folder' ? '#3a3128' : node.shape === 'file' ? '#1c2124' : '#18160f';
+    const form =
+      node.shape === 'folder'
+        ? 'shape=mxgraph.basic.folder;tabWidth=28;tabHeight=10;tabPosition=left;'
+        : node.shape === 'file'
+          ? 'shape=mxgraph.basic.folded_corner;size=14;'
+          : 'rounded=0;';
     const label = `&lt;div style=&quot;text-align:left;line-height:1.35;&quot;&gt;${xml(node.label)}&lt;br&gt;&lt;span style=&quot;font-size:11px;color:#8d877c;&quot;&gt;${xml(node.detail)}&lt;/span&gt;&lt;/div&gt;`;
     cells.push(
-      `<mxCell id="${id}" value="${label}" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#18160f;strokeColor=${stroke};fontColor=#e7e1d4;fontFamily=${font};align=left;verticalAlign=middle;spacingLeft=12;fontSize=14;${opacity}" vertex="1" parent="1">`,
+      `<mxCell id="${id}" value="${label}" style="${form}whiteSpace=wrap;html=1;fillColor=${fill};strokeColor=${stroke};fontColor=#e7e1d4;fontFamily=${font};align=left;verticalAlign=middle;spacingLeft=12;fontSize=14;${opacity}" vertex="1" parent="1">`,
       `<mxGeometry x="${num(node.x)}" y="${num(node.y)}" width="${num(node.width)}" height="${num(node.height)}" as="geometry"/>`,
       '</mxCell>',
     );
