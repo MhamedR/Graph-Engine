@@ -133,6 +133,59 @@ test('a nested folder opens as parts, not path-shaped files', async () => {
   }
 });
 
+test('a tsconfig path alias links search/page.tsx to services/api.ts', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'atlas-alias-'));
+
+  try {
+    await mkdir(join(root, 'src/app/search'), {recursive: true});
+    await mkdir(join(root, 'src/services'), {recursive: true});
+    await writeFile(
+      join(root, 'tsconfig.json'),
+      `{
+        // Next.js alias
+        "compilerOptions": {
+          "paths": { "@/*": ["./src/*"] },
+        }
+      }`,
+    );
+    await writeFile(
+      join(root, 'src/app/search/page.tsx'),
+      "import {queryRag} from '@/services/api';\nimport {useState} from 'react';\nexport default function Page() { return queryRag; }\n",
+    );
+    await writeFile(
+      join(root, 'src/services/api.ts'),
+      'export function queryRag() { return null; }\n',
+    );
+
+    const snapshot = await extractProject(root);
+    assert(
+      snapshot.edges.some(
+        (edge) => edge.relation === IMPORTS && edge.from === 'services' && edge.to === 'app',
+      ),
+      'search stands on services through the @ alias',
+    );
+    assert(
+      !snapshot.edges.some((edge) => edge.from === 'react' || edge.to === 'react'),
+      'a package import is not a source edge',
+    );
+
+    const search = await extractSourceFocus(root, 'src/app/search');
+    ensure(search !== null, 'the search folder opens');
+    assert(
+      search.edges.some(
+        (edge) => edge.relation === IMPORTS && edge.from === 'api.ts' && edge.to === 'page.tsx',
+      ),
+      'page.tsx stands on api.ts',
+    );
+    assert(
+      search.nodes.find((node) => node.id === 'api.ts')?.version === 'link',
+      'api.ts is outside the search folder',
+    );
+  } finally {
+    await rm(root, {recursive: true, force: true});
+  }
+});
+
 test('a workspace of several packages stays a package map', async () => {
   const snapshot = await extractProject(repoRoot);
   const ids = new Set(snapshot.nodes.map((node) => node.id));
