@@ -904,6 +904,7 @@ function Graph({
             }}
             data-node-id={node.id}
             data-shape={shape ?? undefined}
+            data-link={pkg.version === 'link' ? 'true' : undefined}
             data-rank={node.rank}
             data-selected={selected ? 'true' : 'false'}
             data-dimmed={dimmed ? 'true' : 'false'}

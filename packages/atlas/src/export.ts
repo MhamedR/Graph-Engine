@@ -22,6 +22,7 @@ export interface ExportNode {
   readonly selected: boolean;
   readonly copper: boolean;
   readonly quietBorder: boolean;
+  readonly link: boolean;
   readonly shape: NodeShape | 'package';
 }
 
@@ -101,6 +102,7 @@ export function buildExportPicture(input: {
       selected,
       copper,
       quietBorder: pkg.private && !copper,
+      link: pkg.version === 'link',
     });
   }
 
@@ -180,11 +182,13 @@ export function toDrawio(picture: ExportPicture): string {
       ? '#e07a45'
       : node.quietBorder
         ? '#2a2822'
-        : node.shape === 'folder'
-          ? '#b08972'
-          : node.shape === 'file'
-            ? '#8d877c'
-            : '#3a362e';
+        : node.link
+          ? '#e07a45'
+          : node.shape === 'folder'
+            ? '#b08972'
+            : node.shape === 'file'
+              ? '#8d877c'
+              : '#3a362e';
     const font = node.selected ? 'Fraunces' : 'Outfit';
     const opacity = node.opacity >= 1 ? '' : `opacity=${Math.round(node.opacity * 100)};`;
     const fill =
@@ -195,9 +199,10 @@ export function toDrawio(picture: ExportPicture): string {
         : node.shape === 'file'
           ? 'shape=mxgraph.basic.folded_corner;size=14;'
           : 'rounded=0;';
+    const dotted = node.link ? 'dashed=1;dashPattern=1 2;' : '';
     const label = `&lt;div style=&quot;text-align:left;line-height:1.35;&quot;&gt;${xml(node.label)}&lt;br&gt;&lt;span style=&quot;font-size:11px;color:#8d877c;&quot;&gt;${xml(node.detail)}&lt;/span&gt;&lt;/div&gt;`;
     cells.push(
-      `<mxCell id="${id}" value="${label}" style="${form}whiteSpace=wrap;html=1;fillColor=${fill};strokeColor=${stroke};fontColor=#e7e1d4;fontFamily=${font};align=left;verticalAlign=middle;spacingLeft=12;fontSize=14;${opacity}" vertex="1" parent="1">`,
+      `<mxCell id="${id}" value="${label}" style="${form}${dotted}whiteSpace=wrap;html=1;fillColor=${fill};strokeColor=${stroke};fontColor=#e7e1d4;fontFamily=${font};align=left;verticalAlign=middle;spacingLeft=12;fontSize=14;${opacity}" vertex="1" parent="1">`,
       `<mxGeometry x="${num(node.x)}" y="${num(node.y)}" width="${num(node.width)}" height="${num(node.height)}" as="geometry"/>`,
       '</mxCell>',
     );

@@ -64,17 +64,21 @@ export async function paintJpeg(picture: ExportPicture): Promise<{
       ? COPPER
       : node.quietBorder
         ? 'rgba(231, 225, 212, 0.08)'
-        : node.shape === 'folder'
-          ? FOLDER_LINE
-          : node.shape === 'file'
-            ? FILE_LINE
-            : 'rgba(231, 225, 212, 0.16)';
+        : node.link
+          ? COPPER
+          : node.shape === 'folder'
+            ? FOLDER_LINE
+            : node.shape === 'file'
+              ? FILE_LINE
+              : 'rgba(231, 225, 212, 0.16)';
     context.strokeStyle = stroke;
     context.fillStyle = node.shape === 'folder' ? FOLDER : node.shape === 'file' ? FILE : NODE;
     if (node.shape === 'folder') paintFolder(context, node);
     else context.fillRect(node.x, node.y, node.width, node.height);
     if (node.shape !== 'folder') {
+      if (node.link) context.setLineDash([2, 2]);
       context.strokeRect(node.x + 0.5, node.y + 0.5, node.width - 1, node.height - 1);
+      context.setLineDash([]);
     }
     if (node.shape === 'file') paintFold(context, node);
     context.textAlign = 'left';
